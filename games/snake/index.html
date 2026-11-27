@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>贪吃蛇大作战 - 超级解压小游戏</title>
+  <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body class="game-page">
+  <div data-ad-slot="banner-top" class="ad-slot-wrap"></div>
+  <div class="game-topbar">
+    <a class="back-btn" href="../../index.html">← 返回游戏大厅</a>
+    <div class="game-title">🐍 贪吃蛇大作战</div>
+  </div>
+
+  <div class="arcade-wrap">
+    <div class="arcade-hud">
+      <div class="arcade-stat"><span class="lbl">得分</span><span class="val" id="score">0</span></div>
+      <div class="arcade-stat combo"><span class="lbl">长度</span><span class="val" id="length">4</span></div>
+      <div class="arcade-stat hi"><span class="lbl">最高</span><span class="val" id="best">0</span></div>
+    </div>
+    <div class="arcade-level-bar"><span class="lv-name" id="levelLabel">🐇 中等</span><span class="lv-speed" id="speedLabel">速度：适中</span></div>
+
+    <div class="arcade-canvas-box" id="box">
+      <canvas id="cv"></canvas>
+      <div class="arcade-overlay show" id="startOv">
+        <div class="arcade-panel">
+          <div class="p-emoji">🐍</div>
+          <h2>贪吃蛇大作战</h2>
+          <p class="p-sub">吃下食物让小蛇越长越长！先选难度，用方向键、滑动屏幕或下方按钮控制转向。别撞墙，也别咬到自己。</p>
+          <div class="level-picker" id="levelPicker">
+            <button class="level-btn" data-level="0">🐢 简单</button>
+            <button class="level-btn active" data-level="1">🐇 中等</button>
+            <button class="level-btn" data-level="2">🚀 困难</button>
+          </div>
+          <button class="arcade-btn primary big" id="startBtn">开始游戏</button>
+        </div>
+      </div>
+      <div class="arcade-overlay" id="endOv">
+        <div class="arcade-panel">
+          <div class="p-emoji">💥</div>
+          <h2>撞到啦</h2>
+          <div class="p-score">本次得分 <b id="finalScore">0</b></div>
+          <div id="newBest" class="p-new" style="display:none">🎉 新纪录！</div>
+          <button class="arcade-btn primary big" id="againBtn">再来一局</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="dpad">
+      <div class="dpad-row"><button class="dpad-key space"></button><button class="dpad-key" data-dir="up">↑</button><button class="dpad-key space"></button></div>
+      <div class="dpad-row"><button class="dpad-key" data-dir="left">←</button><button class="dpad-key" data-dir="down">↓</button><button class="dpad-key" data-dir="right">→</button></div>
+    </div>
+
+    <div class="arcade-controls">
+      <button class="arcade-btn" id="muteBtn">🔊 音效开</button>
+      <button class="arcade-btn" id="resetBtn">↺ 重新开始</button>
+    </div>
+    <p class="arcade-tip">先选难度再开始。方向键 / 滑动屏幕 / 下方按钮控制转向，吃得越多跑得越快，挑战你的最长纪录！</p>
+  </div>
+
+  <div data-ad-slot="banner-bottom" class="ad-slot-wrap"></div>
+
+  <script src="../../js/ads.js"></script>
+  <script src="../../js/arcade-kit.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var A = window.Arcade;
+    var CELL = 20, COLS = 20, ROWS = 22, W = CELL * COLS, H = CELL * ROWS;
+    var cv = document.getElementById('cv');
+    var ctx = A.fitCanvas(cv, W, H);
+    var box = document.getElementById('box');
+    var $ = function (id) { return document.getElementById(id); };
+
+    // 三档难度：数值为每步毫秒，越大越慢；随得分小幅提速但有下限
+    var LEVELS = [
+      { name: '🐢 简单', speed: '速度：慢悠悠', base: 230, min: 150, step: 5 },
+      { name: '🐇 中等', speed: '速度：适中', base: 175, min: 110, step: 6 },
+      { name: '🚀 困难', speed: '速度：快', base: 130, min: 80, step: 7 }
+    ];
+    var level = 1;
+
+    var snake, dir, nextDir, food, score, best = A.Best.get('snake');
+    var running = false, over = false, acc = 0, lastTs = 0, flash = 0;
+
+    function reset() {
+      snake = [{ x: 10, y: 11 }, { x: 9, y: 11 }, { x: 8, y: 11 }, { x: 7, y: 11 }];
+      dir = { x: 1, y: 0 }; nextDir = { x: 1, y: 0 };
+      score = 0; acc = 0; over = false; running = false; flash = 0;
+      spawnFood();
+      updateHud();
+      updateLevelUI();
+      $('endOv').classList.remove('show');
+      $('startOv').classList.add('show');
+    }
+    function start() { $('startOv').classList.remove('show'); running = true; }
+    function updateHud() {
+      $('score').textContent = score;
+      $('length').textContent = snake.length;
+      $('best').textContent = best;
+    }
+    function spawnFood() {
+      var cnt = 0;
+      do {
+        food = { x: A.randInt(0, COLS - 1), y: A.randInt(0, ROWS - 1) };
+        cnt++;
+      } while (snake.some(function (s) { return s.x === food.x && s.y === food.y; }) && cnt < 200);
+    }
+    function turn(x, y) {
+      if (x === -dir.x && y === -dir.y) return; // 不能掉头
+      nextDir = { x: x, y: y };
+    }
+
+    function move() {
+      dir = { x: nextDir.x, y: nextDir.y };
+      var head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
+      if (head.x < 0 || head.x >= COLS || head.y < 0 || head.y >= ROWS) { gameOver(); return; }
+      var eat = (head.x === food.x && head.y === food.y);
+      var body = eat ? snake : snake.slice(0, -1);
+      if (body.some(function (s) { return s.x === head.x && s.y === head.y; })) { gameOver(); return; }
+      snake.unshift(head);
+      if (eat) {
+        score += 10;
+        spawnFood();
+        A.SFX.eat();
+        A.vibrate(18);
+        flash = 1;
+        updateHud();
+      } else {
+        snake.pop();
+      }
+    }
+
+    function gameOver() {
+      over = true; running = false;
+      var isNew = score > best;
+      if (isNew) { best = score; A.Best.set('snake', best); }
+      updateHud();
+      $('finalScore').textContent = score;
+      $('newBest').style.display = isNew ? 'inline-block' : 'none';
+      $('endOv').classList.add('show');
+      A.SFX.fail(); A.vibrate(80);
+    }
+
+    function draw() {
+      // 棋盘背景
+      ctx.fillStyle = '#123A2E'; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = 'rgba(255,255,255,.035)';
+      for (var r = 0; r < ROWS; r++) {
+        for (var c = 0; c < COLS; c++) {
+          if ((r + c) % 2 === 0) ctx.fillRect(c * CELL, r * CELL, CELL, CELL);
+        }
+      }
+      // 食物
+      var fx = food.x * CELL + CELL / 2, fy = food.y * CELL + CELL / 2;
+      var pulse = 1 + Math.sin(performance.now() / 180) * 0.08;
+      ctx.fillStyle = '#FF5B6E';
+      ctx.beginPath(); ctx.arc(fx, fy, CELL * 0.36 * pulse, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.7)';
+      ctx.beginPath(); ctx.arc(fx - 3, fy - 3, 3, 0, Math.PI * 2); ctx.fill();
+      // 蛇
+      for (var i = snake.length - 1; i >= 0; i--) {
+        var s = snake[i];
+        var t = i / Math.max(1, snake.length - 1);
+        var g = ctx.createLinearGradient(s.x * CELL, s.y * CELL, (s.x + 1) * CELL, (s.y + 1) * CELL);
+        if (i === 0) { g.addColorStop(0, '#8BF0A8'); g.addColorStop(1, '#37C97A'); }
+        else { g.addColorStop(0, shade('#37C97A', -t * 0.35)); g.addColorStop(1, shade('#2AA865', -t * 0.35)); }
+        ctx.fillStyle = g;
+        roundRect(s.x * CELL + 1.5, s.y * CELL + 1.5, CELL - 3, CELL - 3, 6); ctx.fill();
+        if (i === 0) {
+          // 眼睛
+          ctx.fillStyle = '#103A22';
+          var ex = s.x * CELL, ey = s.y * CELL;
+          if (dir.x !== 0) {
+            ctx.beginPath(); ctx.arc(ex + (dir.x > 0 ? 13 : 7), ey + 6, 2, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(ex + (dir.x > 0 ? 13 : 7), ey + 14, 2, 0, Math.PI * 2); ctx.fill();
+          } else {
+            ctx.beginPath(); ctx.arc(ex + 6, ey + (dir.y > 0 ? 13 : 7), 2, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(ex + 14, ey + (dir.y > 0 ? 13 : 7), 2, 0, Math.PI * 2); ctx.fill();
+          }
+        }
+      }
+      if (flash > 0) {
+        ctx.fillStyle = 'rgba(255,255,255,' + (flash * 0.18) + ')';
+        ctx.fillRect(0, 0, W, H);
+        flash -= 0.05;
+      }
+    }
+    function shade(hex, amt) {
+      var n = parseInt(hex.slice(1), 16);
+      var r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+      var f = function (v) { return Math.round(A.clamp(v * (1 + amt), 0, 255)); };
+      return 'rgb(' + f(r) + ',' + f(g) + ',' + f(b) + ')';
+    }
+    function roundRect(x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    }
+
+    function interval() {
+      var L = LEVELS[level];
+      return Math.max(L.min, L.base - Math.floor(score / 40) * L.step);
+    }
+    function updateLevelUI() {
+      $('levelLabel').textContent = LEVELS[level].name;
+      $('speedLabel').textContent = LEVELS[level].speed;
+      document.querySelectorAll('.level-btn').forEach(function (b) {
+        b.classList.toggle('active', parseInt(b.getAttribute('data-level'), 10) === level);
+      });
+    }
+
+    function loop(ts) {
+      var dt = Math.min((ts - lastTs) / 1000 || 0, 0.05);
+      lastTs = ts;
+      if (running && !over) {
+        acc += dt * 1000;
+        var guard = 0;
+        while (acc >= interval() && guard < 6 && running) { acc -= interval(); move(); guard++; }
+      }
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    // 虚拟方向键
+    document.querySelectorAll('.dpad-key[data-dir]').forEach(function (btn) {
+      btn.addEventListener('pointerdown', function (e) {
+        e.preventDefault();
+        var d = btn.getAttribute('data-dir');
+        var map = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+        turn(map[d][0], map[d][1]);
+        A.SFX.tap();
+      });
+    });
+    // 键盘
+    window.addEventListener('keydown', function (e) {
+      var map = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0], w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0] };
+      var m = map[e.key];
+      if (m) { e.preventDefault(); turn(m[0], m[1]); }
+    });
+    // 滑动手势
+    var touchStart = null;
+    box.addEventListener('pointerdown', function (e) { touchStart = { x: e.clientX, y: e.clientY }; });
+    box.addEventListener('pointerup', function (e) {
+      if (!touchStart) return;
+      var dx = e.clientX - touchStart.x, dy = e.clientY - touchStart.y;
+      touchStart = null;
+      if (Math.hypot(dx, dy) < 20) return;
+      if (Math.abs(dx) > Math.abs(dy)) turn(dx > 0 ? 1 : -1, 0);
+      else turn(0, dy > 0 ? 1 : -1);
+    });
+
+    // 难度选择
+    document.querySelectorAll('.level-btn').forEach(function (b) {
+      b.addEventListener('click', function () {
+        level = parseInt(b.getAttribute('data-level'), 10);
+        updateLevelUI();
+        A.SFX.tap();
+      });
+    });
+    $('startBtn').addEventListener('click', start);
+    $('againBtn').addEventListener('click', reset);
+    $('resetBtn').addEventListener('click', reset);
+    $('muteBtn').addEventListener('click', function () {
+      var m = !A.isMuted(); A.setMuted(m);
+      $('muteBtn').textContent = m ? '🔇 音效关' : '🔊 音效开';
+    });
+
+    reset();
+    requestAnimationFrame(function (t) { lastTs = t; loop(t); });
+  })();
+  </script>
+</body>
+</html>

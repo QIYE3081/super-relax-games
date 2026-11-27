@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>泡泡合成大作战 - 超级解压小游戏</title>
+  <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body class="game-page">
+  <div data-ad-slot="banner-top" class="ad-slot-wrap"></div>
+  <div class="game-topbar">
+    <a class="back-btn" href="../../index.html">← 返回游戏大厅</a>
+    <div class="game-title">🧼 泡泡合成大作战</div>
+  </div>
+
+  <div class="arcade-wrap">
+    <div class="arcade-hud">
+      <div class="arcade-stat"><span class="lbl">得分</span><span class="val" id="score">0</span></div>
+      <div class="arcade-stat combo"><span class="lbl">连击</span><span class="val" id="combo">0</span></div>
+      <div class="arcade-stat hi"><span class="lbl">最高</span><span class="val" id="best">0</span></div>
+    </div>
+
+    <div class="arcade-canvas-box" id="box">
+      <canvas id="cv"></canvas>
+      <div class="arcade-overlay show" id="startOv">
+        <div class="arcade-panel">
+          <div class="p-emoji">🫧</div>
+          <h2>泡泡合成大作战</h2>
+          <p class="p-sub">瞄准射出泡泡，三个同色连在一起就会消除。更妙的是——同色泡泡会合并升级，大泡泡爆开时十字连锁，一次清掉一大片！</p>
+          <button class="arcade-btn primary big" id="startBtn">开始游戏</button>
+        </div>
+      </div>
+      <div class="arcade-overlay" id="endOv">
+        <div class="arcade-panel">
+          <div class="p-emoji">🎉</div>
+          <h2 id="endTitle">清空啦</h2>
+          <div class="p-score">本次得分 <b id="finalScore">0</b></div>
+          <div id="newBest" class="p-new" style="display:none">🎉 新纪录！</div>
+          <button class="arcade-btn primary big" id="againBtn">再来一局</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="arcade-controls">
+      <button class="arcade-btn" id="muteBtn">🔊 音效开</button>
+      <button class="arcade-btn" id="resetBtn">↺ 重新开始</button>
+    </div>
+    <p class="arcade-tip">滑动瞄准，松手发射。三个同色相连即消除；合并出的大泡泡爆破会十字连锁。别让泡泡堆过底线！</p>
+  </div>
+
+  <div data-ad-slot="banner-bottom" class="ad-slot-wrap"></div>
+
+  <script src="../../js/ads.js"></script>
+  <script src="../../js/arcade-kit.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var A = window.Arcade;
+    var W = 400, H = 600, R = 18, COLS = 10, ROWS = 12;
+    var cv = document.getElementById('cv');
+    var ctx = A.fitCanvas(cv, W, H);
+    var box = document.getElementById('box');
+    var $ = function (id) { return document.getElementById(id); };
+    var COLORS = ['#FF5B7C', '#FFB23F', '#4DD6A0', '#4DA8FF', '#B77BFF', '#FF7BD5'];
+    var EMOTES = ['🍓', '🍊', '🥝', '💧', '🍇', '🍑'];
+
+    var grid, shooter, curColor, nextColor, aimX, aimY, flying, score, combo, best = A.Best.get('bubble');
+    var running = false, over = false, lastTs = 0, particle = new A.Particles(), floaters = new A.Floaters();
+    var shakeT = 0, shotLock = 0;
+    var DANGER_Y = H - 90;
+
+    function cellPos(c, r) { return { x: R + c * 2 * R + (r % 2 ? R : 0), y: R + r * R * 1.73 }; }
+
+    function reset() {
+      grid = [];
+      for (var r = 0; r < 5; r++) {
+        for (var c = 0; c < COLS - (r % 2 ? 1 : 0); c++) {
+          grid.push({ c: c, r: r, lv: 0, color: COLORS[A.randInt(0, 3)] });
+        }
+      }
+      shooter = { x: W / 2, y: H - 42 };
+      curColor = COLORS[A.randInt(0, 3)];
+      nextColor = COLORS[A.randInt(0, 3)];
+      aimX = W / 2; aimY = H / 2;
+      flying = null; score = 0; combo = 0; over = false; running = false;
+      shotLock = 0; shakeT = 0; particle.clear(); floaters.clear();
+      updateHud();
+      $('endOv').classList.remove('show');
+      $('startOv').classList.add('show');
+    }
+    function start() { $('startOv').classList.remove('show'); running = true; }
+    function updateHud() { $('score').textContent = score; $('combo').textContent = combo; $('best').textContent = best; }
+    function colorIndex(col) { return COLORS.indexOf(col); }
+
+    function findCell(x, y) {
+      for (var i = 0; i < grid.length; i++) {
+        var p = cellPos(grid[i].c, grid[i].r);
+        if (Math.hypot(p.x - x, p.y - y) < R * 1.05) return i;
+      }
+      return -1;
+    }
+    // 六边形邻接：返回对象引用（不使用索引，避免 splice 后索引失效）
+    function neighbors(b) {
+      var even = b.r % 2 === 0;
+      var dirs = even ? [[-1,0],[1,0],[-1,-1],[0,-1],[-1,1],[0,1]] : [[-1,0],[1,0],[0,-1],[1,-1],[0,1],[1,1]];
+      var out = [];
+      for (var i = 0; i < grid.length; i++) {
+        var o = grid[i];
+        for (var d = 0; d < dirs.length; d++) {
+          if (o.c === b.c + dirs[d][0] && o.r === b.r + dirs[d][1]) { out.push(o); break; }
+        }
+      }
+      return out;
+    }
+
+    function shoot() {
+      if (!running || over || flying || shotLock > 0) return;
+      var dx = aimX - shooter.x, dy = aimY - shooter.y;
+      var d = Math.hypot(dx, dy) || 1;
+      if (dy > -20) dy = -20; // 只能向上
+      var sp = 620;
+      flying = { x: shooter.x, y: shooter.y, vx: dx / d * sp, vy: dy / d * sp, color: curColor, lv: 0 };
+      curColor = nextColor;
+      nextColor = COLORS[A.randInt(0, Math.min(3 + Math.floor(score / 200), 5))];
+      shotLock = 0.12;
+      A.SFX.tap();
+    }
+
+    function attachFlying() {
+      // 找到落点：碰顶或碰到已有泡泡
+      var x = flying.x, y = flying.y;
+      var c = Math.round((x - R - (0 ? R : 0)) / (2 * R));
+      var r = Math.round((y - R) / (R * 1.73));
+      r = Math.max(0, Math.min(ROWS - 1, r));
+      // 就近吸附：找最近的空六边形格
+      var bestCell = null, bestDist = 1e9;
+      for (var rr = 0; rr < ROWS; rr++) {
+        for (var cc = 0; cc < COLS - (rr % 2 ? 1 : 0); cc++) {
+          if (findCellAt(cc, rr) >= 0) continue;
+          var p = cellPos(cc, rr);
+          var dist = Math.hypot(p.x - x, p.y - y);
+          if (dist < bestDist) { bestDist = dist; bestCell = { c: cc, r: rr }; }
+        }
+      }
+      if (!bestCell) { flying = null; return; }
+      grid.push({ c: bestCell.c, r: bestCell.r, lv: flying.lv, color: flying.color });
+      flying = null;
+      resolveGroup();
+    }
+    function findCellAt(c, r) {
+      for (var i = 0; i < grid.length; i++) if (grid[i].c === c && grid[i].r === r) return i;
+      return -1;
+    }
+
+    // 消除/合并逻辑：用对象引用，反复扫描直到没有可合并的组
+    function resolveGroup() {
+      var merged = true;
+      var guard = 0;
+      while (merged && guard < 30) {
+        merged = false; guard++;
+        for (var i = 0; i < grid.length; i++) {
+          var b = grid[i];
+          // BFS 找同色同等级连通组（对象引用）
+          var group = [b];
+          var seen = [b];
+          var queue = [b];
+          while (queue.length) {
+            var cur = queue.shift();
+            var ns = neighbors(cur);
+            for (var k = 0; k < ns.length; k++) {
+              var n = ns[k];
+              if (seen.indexOf(n) >= 0) continue;
+              if (n.color === b.color && n.lv === b.lv) {
+                seen.push(n); group.push(n); queue.push(n);
+              }
+            }
+          }
+          var threshold = 3 + b.lv;
+          if (group.length >= threshold) {
+            // 合并：保留 b 升级，移除其余
+            var pos = cellPos(b.c, b.r);
+            b.lv += 1;
+            var removeSet = group.slice(1);
+            grid = grid.filter(function (x) { return removeSet.indexOf(x) < 0; });
+            var gain = 20 * Math.pow(2, b.lv);
+            score += gain; combo++;
+            particle.burst(pos.x, pos.y, { count: 18, colors: [b.color, '#fff'], speedMax: 280, lifeMax: 0.8 });
+            floaters.add(pos.x, pos.y, '合成 +' + gain, '#FFE066', 18);
+            A.SFX.combo(combo); A.vibrate(20);
+            updateHud();
+            // 大泡泡（lv>=2）爆破十字连锁
+            if (b.lv >= 2) { explodeCross(b); }
+            merged = true;
+            break; // 网格变了，重新扫描
+          }
+        }
+      }
+      combo = 0; updateHud();
+      checkFloating();
+      checkEnd();
+    }
+    function explodeCross(target) {
+      if (grid.indexOf(target) < 0) return;
+      var pos = cellPos(target.c, target.r);
+      var removed = 0;
+      grid = grid.filter(function (x) {
+        if (x === target) return false;
+        if (x.c === target.c || x.r === target.r) {
+          var pp = cellPos(x.c, x.r);
+          particle.burst(pp.x, pp.y, { count: 6, colors: [x.color], speedMax: 160 });
+          removed++; return false;
+        }
+        return true;
+      });
+      particle.burst(pos.x, pos.y, { count: 30, colors: [target.color, '#fff', '#FFE066'], speedMax: 360, lifeMax: 1 });
+      floaters.add(pos.x, pos.y, '十字爆破!', '#FF5B7C', 22);
+      score += 50 + removed * 10; shakeT = 0.3; A.SFX.win(); A.vibrate(50);
+      updateHud();
+    }
+    // 移除与顶部不连通的悬空泡泡（对象引用）
+    function checkFloating() {
+      if (!grid.length) return;
+      var connected = [];
+      var queue = [];
+      for (var i = 0; i < grid.length; i++) if (grid[i].r === 0) { connected.push(grid[i]); queue.push(grid[i]); }
+      while (queue.length) {
+        var cur = queue.shift();
+        var ns = neighbors(cur);
+        for (var n = 0; n < ns.length; n++) {
+          if (connected.indexOf(ns[n]) < 0) { connected.push(ns[n]); queue.push(ns[n]); }
+        }
+      }
+      var removed = 0;
+      grid = grid.filter(function (x) {
+        if (connected.indexOf(x) < 0) {
+          var p = cellPos(x.c, x.r);
+          particle.burst(p.x, p.y, { count: 8, colors: [x.color], speedMax: 180 });
+          removed++; return false;
+        }
+        return true;
+      });
+      if (removed > 0) { score += removed * 15; updateHud(); A.SFX.score(); }
+    }
+    function checkEnd() {
+      var lowest = 0;
+      for (var i = 0; i < grid.length; i++) {
+        var p = cellPos(grid[i].c, grid[i].r);
+        if (p.y + R > lowest) lowest = p.y + R;
+      }
+      if (lowest >= DANGER_Y || grid.length === 0) gameOver(grid.length === 0);
+    }
+    function gameOver(win) {
+      over = true; running = false;
+      var isNew = score > best;
+      if (isNew) { best = score; A.Best.set('bubble', best); }
+      updateHud();
+      $('finalScore').textContent = score;
+      $('endTitle').textContent = win ? '全部清空！' : '泡泡满啦';
+      $('newBest').style.display = isNew ? 'inline-block' : 'none';
+      $('endOv').classList.add('show');
+      if (win) A.SFX.win(); else A.SFX.fail();
+    }
+
+    function loop(ts) {
+      var dt = Math.min((ts - lastTs) / 1000 || 0, 0.033);
+      lastTs = ts;
+      if (running && !over) {
+        if (shotLock > 0) shotLock -= dt;
+        if (flying) {
+          flying.x += flying.vx * dt; flying.y += flying.vy * dt;
+          // 左右墙反弹
+          if (flying.x < R) { flying.x = R; flying.vx = Math.abs(flying.vx); }
+          if (flying.x > W - R) { flying.x = W - R; flying.vx = -Math.abs(flying.vx); }
+          // 撞顶或撞泡泡
+          if (flying.y <= R || findCell(flying.x, flying.y) >= 0) attachFlying();
+        }
+      }
+      if (shakeT > 0) shakeT -= dt;
+      particle.update(dt); floaters.update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    function draw() {
+      ctx.save();
+      if (shakeT > 0) ctx.translate(A.rand(-5, 5), A.rand(-5, 5));
+      // 背景
+      var g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, '#1B3A6B'); g.addColorStop(0.6, '#2A2A6B'); g.addColorStop(1, '#4A2A6B');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      // 星星
+      ctx.fillStyle = 'rgba(255,255,255,.25)';
+      for (var i = 0; i < 30; i++) ctx.fillRect((i * 97) % W, (i * 61) % H, 2, 2);
+      // 警戒线
+      ctx.strokeStyle = 'rgba(255,90,120,.6)'; ctx.lineWidth = 2; ctx.setLineDash([8, 6]);
+      ctx.beginPath(); ctx.moveTo(0, DANGER_Y); ctx.lineTo(W, DANGER_Y); ctx.stroke(); ctx.setLineDash([]);
+      // 泡泡
+      grid.forEach(function (b, idx) { drawBubble(b, idx); });
+      // 飞行泡泡
+      if (flying) drawBubbleRaw(flying.x, flying.y, flying.lv, flying.color);
+      // 发射器
+      drawShooter();
+      particle.draw(ctx); floaters.draw(ctx);
+      ctx.restore();
+    }
+    function drawBubble(b, idx) {
+      var p = cellPos(b.c, b.r);
+      drawBubbleRaw(p.x, p.y, b.lv, b.color);
+    }
+    function drawBubbleRaw(x, y, lv, color) {
+      var r = R * (1 + lv * 0.16);
+      var grd = ctx.createRadialGradient(x - r * 0.35, y - r * 0.4, r * 0.1, x, y, r);
+      grd.addColorStop(0, '#ffffff'); grd.addColorStop(0.3, A.shade(color, 0.3)); grd.addColorStop(1, color);
+      ctx.fillStyle = grd;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+      // 高光
+      ctx.fillStyle = 'rgba(255,255,255,.7)';
+      ctx.beginPath(); ctx.ellipse(x - r * 0.32, y - r * 0.38, r * 0.22, r * 0.12, -0.6, 0, Math.PI * 2); ctx.fill();
+      // 等级标识：lv>=1 显示星星点
+      if (lv >= 1) {
+        ctx.fillStyle = '#FFE066';
+        for (var s = 0; s < Math.min(lv, 4); s++) {
+          ctx.beginPath(); ctx.arc(x - 6 + s * 4, y + r * 0.55, 2, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+    }
+    function drawShooter() {
+      // 瞄准虚线
+      if (running && !over) {
+        var dx = aimX - shooter.x, dy = aimY - shooter.y;
+        if (dy > -20) dy = -20;
+        var d = Math.hypot(dx, dy) || 1;
+        ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 2; ctx.setLineDash([6, 8]);
+        ctx.beginPath(); ctx.moveTo(shooter.x, shooter.y);
+        ctx.lineTo(shooter.x + dx / d * 200, shooter.y + dy / d * 200); ctx.stroke(); ctx.setLineDash([]);
+      }
+      // 底座
+      ctx.fillStyle = 'rgba(255,255,255,.15)';
+      A.roundRectPath(ctx, shooter.x - 34, shooter.y - 6, 68, 40, 12); ctx.fill();
+      drawBubbleRaw(shooter.x, shooter.y, 0, curColor);
+      // 下一颗预览
+      ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('下一颗', shooter.x + 52, shooter.y - 14);
+      drawBubbleRaw(shooter.x + 52, shooter.y + 4, 0, nextColor);
+    }
+
+    function setAim(e) {
+      var rect = cv.getBoundingClientRect();
+      var nx = (e.clientX - rect.left) / rect.width * W;
+      var ny = (e.clientY - rect.top) / rect.height * H;
+      if (isFinite(nx)) aimX = A.clamp(nx, 0, W);
+      if (isFinite(ny)) aimY = A.clamp(ny, 0, H);
+    }
+    box.addEventListener('pointermove', function (e) { if (running && !over) setAim(e); });
+    box.addEventListener('pointerdown', function (e) { e.preventDefault(); setAim(e); });
+    window.addEventListener('pointerup', function () { shoot(); });
+    $('startBtn').addEventListener('click', start);
+    $('againBtn').addEventListener('click', reset);
+    $('resetBtn').addEventListener('click', reset);
+    $('muteBtn').addEventListener('click', function () {
+      var m = !A.isMuted(); A.setMuted(m); $('muteBtn').textContent = m ? '🔇 音效关' : '🔊 音效开';
+    });
+
+    reset();
+    requestAnimationFrame(function (t) { lastTs = t; loop(t); });
+  })();
+  </script>
+</body>
+</html>

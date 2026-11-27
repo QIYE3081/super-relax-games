@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>合成大西瓜 - 超级解压小游戏</title>
+  <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body class="game-page">
+  <div data-ad-slot="banner-top" class="ad-slot-wrap"></div>
+  <div class="game-topbar">
+    <a class="back-btn" href="../../index.html">← 返回游戏大厅</a>
+    <div class="game-title">🍉 合成大西瓜</div>
+  </div>
+
+  <div class="arcade-wrap">
+    <div class="arcade-hud">
+      <div class="arcade-stat"><span class="lbl">得分</span><span class="val" id="score">0</span></div>
+      <div class="arcade-stat combo"><span class="lbl">最大</span><span class="val" id="maxFruit">🍒</span></div>
+      <div class="arcade-stat hi"><span class="lbl">最高</span><span class="val" id="best">0</span></div>
+    </div>
+
+    <div class="arcade-canvas-box" id="box">
+      <canvas id="cv"></canvas>
+      <div class="arcade-overlay show" id="startOv">
+        <div class="arcade-panel">
+          <div class="p-emoji">🍉</div>
+          <h2>合成大西瓜</h2>
+          <p class="p-sub">按住画面左右移动瞄准，松开手指水果才会落下。两个相同的水果碰到一起就合成更大的，一路合到大西瓜！别让水果堆过警戒线。</p>
+          <button class="arcade-btn primary big" id="startBtn">开始游戏</button>
+        </div>
+      </div>
+      <div class="arcade-overlay" id="endOv">
+        <div class="arcade-panel">
+          <div class="p-emoji">🍋</div>
+          <h2>堆满啦</h2>
+          <div class="p-score">本次得分 <b id="finalScore">0</b></div>
+          <div id="newBest" class="p-new" style="display:none">🎉 新纪录！</div>
+          <button class="arcade-btn primary big" id="againBtn">再来一局</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="arcade-controls">
+      <button class="arcade-btn" id="muteBtn">🔊 音效开</button>
+      <button class="arcade-btn" id="resetBtn">↺ 重新开始</button>
+    </div>
+    <p class="arcade-tip">按住画面左右滑动瞄准，松开手指投放水果。相同水果合并升级，越合越大，千万别堆过顶线！</p>
+  </div>
+
+  <div data-ad-slot="banner-bottom" class="ad-slot-wrap"></div>
+
+  <script src="../../js/ads.js"></script>
+  <script src="../../js/arcade-kit.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var A = window.Arcade;
+    var W = 400, H = 600;
+    var cv = document.getElementById('cv');
+    var ctx = A.fitCanvas(cv, W, H);
+    var box = document.getElementById('box');
+    var $ = function (id) { return document.getElementById(id); };
+
+    // 水果等级：emoji / 半径 / 颜色
+    var FRUITS = [
+      { e: '🍒', r: 15, c: '#E0395B' }, { e: '🍊', r: 20, c: '#F59331' },
+      { e: '🍋', r: 25, c: '#F2CE3A' }, { e: '🥝', r: 31, c: '#8CC63F' },
+      { e: '🍎', r: 37, c: '#E8453C' }, { e: '🍐', r: 44, c: '#C8D84A' },
+      { e: '🍑', r: 51, c: '#FBA7B4' }, { e: '🍍', r: 59, c: '#F0B93F' },
+      { e: '🥥', r: 68, c: '#B98B5E' }, { e: '🍉', r: 78, c: '#4CAF6D' }
+    ];
+    var SPAWN_MAX = 4; // 只会掉落前 5 级
+    var G = 1250;
+    var WALL = 4, FLOOR = H - 4, CEIL = 4;
+
+    var fruits = [], score = 0, best = A.Best.get('suika');
+    var nextLevel = 0, aimX = W / 2, cooldown = 0, running = false, over = false;
+    var acc = 0, lastTs = 0, dangerT = 0, floaters = [];
+    var DANGER_Y = 92;
+
+    function reset() {
+      fruits = []; score = 0; over = false; running = false;
+      cooldown = 0; dangerT = 0; floaters = [];
+      nextLevel = A.randInt(0, SPAWN_MAX);
+      aimX = W / 2;
+      updateHud();
+      $('endOv').classList.remove('show');
+      $('startOv').classList.add('show');
+    }
+    function start() { $('startOv').classList.remove('show'); running = true; }
+    function updateHud() {
+      $('score').textContent = score;
+      $('best').textContent = best;
+      var maxLv = 0;
+      fruits.forEach(function (f) { if (f.lv > maxLv) maxLv = f.lv; });
+      $('maxFruit').textContent = FRUITS[maxLv].e;
+    }
+
+    function addFruit(lv, x, y, vx, vy) {
+      // finite 兜底：任何 NaN/Infinity 都拉回安全值，避免污染物理与渲染
+      x = isFinite(x) ? x : W / 2;
+      y = isFinite(y) ? y : CEIL + 40;
+      vx = isFinite(vx) ? vx : 0;
+      vy = isFinite(vy) ? vy : 0;
+      fruits.push({ lv: lv, r: FRUITS[lv].r, x: x, y: y, vx: vx, vy: vy, age: 0, merged: false });
+    }
+
+    function drop() {
+      if (!running || over || cooldown > 0) return;
+      var r = FRUITS[nextLevel].r;
+      var x = A.clamp(aimX, r + WALL, W - r - WALL);
+      addFruit(nextLevel, x, CEIL + r + 2, 0, 40);
+      nextLevel = A.randInt(0, SPAWN_MAX);
+      cooldown = 0.32;
+      A.SFX.tap();
+    }
+
+    function step(dt) {
+      fruits.forEach(function (f) {
+        f.age += dt;
+        f.vy += G * dt;
+        f.vx *= 0.996;
+        f.x += f.vx * dt;
+        f.y += f.vy * dt;
+        if (!isFinite(f.x)) { f.x = W / 2; f.vx = 0; }
+        if (!isFinite(f.y)) { f.y = H / 2; f.vy = 0; }
+        if (f.x - f.r < WALL) { f.x = f.r + WALL; f.vx = Math.abs(f.vx) * 0.35; }
+        if (f.x + f.r > W - WALL) { f.x = W - WALL - f.r; f.vx = -Math.abs(f.vx) * 0.35; }
+        if (f.y + f.r > FLOOR) { f.y = FLOOR - f.r; f.vy = -Math.abs(f.vy) * 0.22; f.vx *= 0.86; }
+        if (f.y - f.r < CEIL) { f.y = CEIL + f.r; f.vy = Math.abs(f.vy) * 0.3; }
+      });
+
+      // 碰撞与合并（多迭代稳定）
+      for (var it = 0; it < 4; it++) {
+        for (var i = 0; i < fruits.length; i++) {
+          for (var j = i + 1; j < fruits.length; j++) {
+            var a = fruits[i], b = fruits[j];
+            if (a.merged || b.merged) continue;
+            var dx = b.x - a.x, dy = b.y - a.y;
+            var dist = Math.sqrt(dx * dx + dy * dy);
+            if (!isFinite(dist) || dist < 0.0001) { dist = 0.0001; dx = 0.0001; dy = 0; }
+            var minD = a.r + b.r;
+            if (dist >= minD) continue;
+
+            if (a.lv === b.lv && a.lv < FRUITS.length - 1) {
+              a.merged = true; b.merged = true;
+              var nl = a.lv + 1;
+              var mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+              var gain = (nl + 1) * 2;
+              score += gain;
+              floaters.push({ x: mx, y: my - 8, text: '+' + gain, life: 1 });
+              addFruit(nl, mx, my, (a.vx + b.vx) / 2, -160);
+              A.SFX.merge(nl);
+              A.vibrate(18);
+              updateHud();
+            } else {
+              var overlap = (minD - dist) / 2;
+              var nx = dx / dist, ny = dy / dist;
+              a.x -= nx * overlap; a.y -= ny * overlap;
+              b.x += nx * overlap; b.y += ny * overlap;
+              var rv = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+              if (rv < 0) {
+                var imp = rv * 0.5;
+                a.vx += imp * nx; a.vy += imp * ny;
+                b.vx -= imp * nx; b.vy -= imp * ny;
+              }
+            }
+          }
+        }
+      }
+      // 清理被合并的
+      fruits = fruits.filter(function (f) { return !f.merged; });
+    }
+
+    function checkDanger(dt) {
+      var bad = false;
+      for (var i = 0; i < fruits.length; i++) {
+        var f = fruits[i];
+        if (f.age > 1.4 && f.y - f.r < DANGER_Y && Math.abs(f.vy) < 55) { bad = true; break; }
+      }
+      dangerT = bad ? dangerT + dt : Math.max(0, dangerT - dt * 2);
+      if (dangerT > 1.6) gameOver();
+    }
+
+    function gameOver() {
+      over = true; running = false;
+      var isNew = score > best;
+      if (isNew) { best = score; A.Best.set('suika', best); }
+      updateHud();
+      $('finalScore').textContent = score;
+      $('newBest').style.display = isNew ? 'inline-block' : 'none';
+      $('endOv').classList.add('show');
+      A.SFX.fail();
+      A.vibrate(80);
+    }
+
+    function draw() {
+      // 背景
+      var g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, '#FFF4DC'); g.addColorStop(1, '#FFE0C7');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      // 警戒线
+      ctx.strokeStyle = dangerT > 0 ? 'rgba(230,70,70,.9)' : 'rgba(230,120,70,.45)';
+      ctx.lineWidth = 2; ctx.setLineDash([8, 6]);
+      ctx.beginPath(); ctx.moveTo(0, DANGER_Y); ctx.lineTo(W, DANGER_Y); ctx.stroke();
+      ctx.setLineDash([]);
+      // 待投放水果（虚线引导）
+      if (running && !over) {
+        var r = FRUITS[nextLevel].r;
+        var ax = A.clamp(aimX, r + WALL, W - r - WALL);
+        ctx.globalAlpha = 0.35;
+        drawFruit(nextLevel, ax, CEIL + r + 2, 1);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = 'rgba(120,120,140,.35)';
+        ctx.setLineDash([4, 6]); ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(ax, CEIL + r * 2 + 6); ctx.lineTo(ax, H); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      // 已投放水果
+      fruits.forEach(function (f) { drawFruit(f.lv, f.x, f.y, 1); });
+      // 浮动分数
+      for (var i = floaters.length - 1; i >= 0; i--) {
+        var fl = floaters[i];
+        fl.life -= 0.016; fl.y -= 0.5;
+        ctx.globalAlpha = A.clamp(fl.life, 0, 1);
+        ctx.fillStyle = '#E0457B';
+        ctx.font = 'bold 18px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(fl.text, fl.x, fl.y);
+        ctx.globalAlpha = 1;
+        if (fl.life <= 0) floaters.splice(i, 1);
+      }
+    }
+
+    function drawFruit(lv, x, y, scale) {
+      if (!isFinite(x) || !isFinite(y)) return;
+      var F = FRUITS[lv] || FRUITS[0], r = F.r * (scale || 1);
+      var grd = ctx.createRadialGradient(x - r * 0.35, y - r * 0.4, r * 0.1, x, y, r);
+      grd.addColorStop(0, '#fff'); grd.addColorStop(0.25, F.c); grd.addColorStop(1, shade(F.c, -0.25));
+      ctx.fillStyle = grd;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.5)';
+      ctx.beginPath(); ctx.ellipse(x - r * 0.32, y - r * 0.38, r * 0.22, r * 0.12, -0.6, 0, Math.PI * 2); ctx.fill();
+      ctx.font = Math.round(r * 1.15) + 'px sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(F.e, x, y + r * 0.06);
+      ctx.textBaseline = 'alphabetic';
+    }
+    function shade(hex, amt) {
+      var n = parseInt(hex.slice(1), 16);
+      var r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+      var f = function (v) { return Math.round(A.clamp(v * (1 + amt), 0, 255)); };
+      return 'rgb(' + f(r) + ',' + f(g) + ',' + f(b) + ')';
+    }
+
+    function loop(ts) {
+      var dt = Math.min((ts - lastTs) / 1000 || 0, 0.05);
+      lastTs = ts;
+      if (running && !over) {
+        if (cooldown > 0) cooldown -= dt;
+        acc += dt;
+        var guard = 0;
+        while (acc >= 1 / 120 && guard < 12) { step(1 / 120); acc -= 1 / 120; guard++; }
+        checkDanger(dt);
+      }
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    var pointerDown = false;
+    function updateAim(e) {
+      var rect = cv.getBoundingClientRect();
+      if (rect.width > 0) {
+        var nx = (e.clientX - rect.left) / rect.width * W;
+        if (isFinite(nx)) aimX = A.clamp(nx, 0, W);
+      }
+    }
+    // 两段式交互：按下对准 → 移动瞄准 → 松手投放，避免移动与发射同时触发
+    box.addEventListener('pointerdown', function (e) {
+      e.preventDefault();
+      pointerDown = true;
+      updateAim(e);
+    });
+    box.addEventListener('pointermove', function (e) {
+      if (running && !over) updateAim(e);
+    });
+    window.addEventListener('pointerup', function (e) {
+      if (!pointerDown) return;
+      pointerDown = false;
+      updateAim(e);
+      drop();
+    });
+    window.addEventListener('pointercancel', function () { pointerDown = false; });
+    $('startBtn').addEventListener('click', start);
+    $('againBtn').addEventListener('click', reset);
+    $('resetBtn').addEventListener('click', reset);
+    $('muteBtn').addEventListener('click', function () {
+      var m = !A.isMuted(); A.setMuted(m);
+      $('muteBtn').textContent = m ? '🔇 音效关' : '🔊 音效开';
+    });
+
+    reset();
+    requestAnimationFrame(function (t) { lastTs = t; loop(t); });
+  })();
+  </script>
+</body>
+</html>

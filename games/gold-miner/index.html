@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>黄金矿工寻宝 - 超级解压小游戏</title>
+  <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body class="game-page">
+  <div data-ad-slot="banner-top" class="ad-slot-wrap"></div>
+  <div class="game-topbar">
+    <a class="back-btn" href="../../index.html">← 返回游戏大厅</a>
+    <div class="game-title">💰 黄金矿工寻宝</div>
+  </div>
+
+  <div class="arcade-wrap">
+    <div class="arcade-hud">
+      <div class="arcade-stat"><span class="lbl">金币</span><span class="val" id="score">0</span></div>
+      <div class="arcade-stat combo"><span class="lbl">目标</span><span class="val" id="goal">600</span></div>
+      <div class="arcade-stat hi"><span class="lbl">关卡</span><span class="val" id="level">1</span></div>
+    </div>
+
+    <div class="arcade-canvas-box" id="box">
+      <canvas id="cv"></canvas>
+      <div class="arcade-overlay show" id="startOv">
+        <div class="arcade-panel">
+          <div class="p-emoji">💰</div>
+          <h2>黄金矿工寻宝</h2>
+          <p class="p-sub">点击放下钩爪抓取宝藏！💎钻石值钱、🪨石头不值钱、💣炸弹会扣钱、🎁福袋随机惊喜。在时间内达到目标金币即可过关！</p>
+          <button class="arcade-btn primary big" id="startBtn">开始游戏</button>
+        </div>
+      </div>
+      <div class="arcade-overlay" id="endOv">
+        <div class="arcade-panel">
+          <div class="p-emoji" id="endEmoji">💰</div>
+          <h2 id="endTitle">过关啦</h2>
+          <div class="p-score">金币 <b id="finalScore">0</b></div>
+          <button class="arcade-btn primary big" id="againBtn">再来一局</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="arcade-controls">
+      <button class="arcade-btn" id="muteBtn">🔊 音效开</button>
+      <button class="arcade-btn" id="resetBtn">↺ 重新开始</button>
+    </div>
+    <p class="arcade-tip">点击放下钩爪。钻石值钱、石头不值钱、炸弹扣钱、福袋有惊喜。达到目标金币过关！</p>
+  </div>
+
+  <div data-ad-slot="banner-bottom" class="ad-slot-wrap"></div>
+
+  <script src="../../js/ads.js"></script>
+  <script src="../../js/arcade-kit.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var A = window.Arcade;
+    var W = 400, H = 560;
+    var cv = document.getElementById('cv');
+    var ctx = A.fitCanvas(cv, W, H);
+    var box = document.getElementById('box');
+    var $ = function (id) { return document.getElementById(id); };
+    var ORIGIN = { x: W / 2, y: 70 };
+    var TYPES = [
+      { e: '🪨', r: 20, val: 10, w: 20, color: '#888' },
+      { e: '💰', r: 16, val: 50, w: 22, color: '#FFD84A' },
+      { e: '💎', r: 13, val: 150, w: 10, color: '#7FE8FF' },
+      { e: '💣', r: 17, val: -80, w: 8, color: '#FF5B7C' },
+      { e: '🎁', r: 18, val: 100, w: 12, color: '#FF9EC4' }
+    ];
+
+    var objects, scores, level, goal, timeLeft, running, over, lastTs;
+    var hook, particles, floaters, best, boughtPower;
+    best = A.Best.get('goldminer');
+
+    function reset() {
+      level = 1; scores = 0; goal = 600; timeLeft = 60;
+      running = false; over = false; boughtPower = false;
+      particles = new A.Particles(); floaters = new A.Floaters();
+      hook = { angle: 0, dir: 1, state: 'swing', len: 30, grabbed: null };
+      buildLevel();
+      updateHud();
+      $('endOv').classList.remove('show');
+      $('startOv').classList.add('show');
+    }
+    function start() { $('startOv').classList.remove('show'); running = true; lastTs = performance.now(); }
+    function updateHud() { $('score').textContent = scores; $('goal').textContent = goal; $('level').textContent = level; }
+    function buildLevel() {
+      objects = [];
+      var n = 14 + level * 2;
+      for (var i = 0; i < n; i++) {
+        var total = TYPES.reduce(function (s, t) { return s + t.w; }, 0);
+        var x = Math.random() * total, ti = 0;
+        for (; ti < TYPES.length; ti++) { x -= TYPES[ti].w; if (x <= 0) break; }
+        if (ti >= TYPES.length) ti = 0;
+        var t = TYPES[ti];
+        objects.push({
+          type: ti, x: A.rand(30, W - 30), y: A.rand(180, H - 30),
+          r: t.r, val: t.val, e: t.e, color: t.color, grabbed: false, gone: false,
+          rot: A.rand(0, 6.28)
+        });
+      }
+    }
+    function dropHook() {
+      if (!running || over || hook.state !== 'swing') return;
+      hook.state = 'extend';
+      A.SFX.tap();
+    }
+    function grabCheck() {
+      var ex = ORIGIN.x + Math.sin(hook.angle) * hook.len;
+      var ey = ORIGIN.y + Math.cos(hook.angle) * hook.len;
+      for (var i = 0; i < objects.length; i++) {
+        var o = objects[i];
+        if (o.gone || o.grabbed) continue;
+        if (Math.hypot(ex - o.x, ey - o.y) < o.r + 12) {
+          o.grabbed = true; hook.grabbed = o; hook.state = 'retract';
+          A.SFX.click(); return;
+        }
+      }
+      hook.state = 'retract';
+    }
+    function collect(o) {
+      o.gone = true;
+      var val = o.val;
+      if (o.type === 4) val = A.randInt(50, 300); // 福袋
+      scores += val;
+      var pos = { x: o.x, y: o.y };
+      if (val >= 0) {
+        particles.burst(pos.x, pos.y, { count: 16, colors: [o.color, '#FFD84A', '#fff'], speedMax: 220 });
+        floaters.add(pos.x, pos.y, '+' + val, '#FFE066', 20);
+        A.SFX.combo(val / 50); A.vibrate(15);
+      } else {
+        particles.burst(pos.x, pos.y, { count: 20, colors: ['#FF5B7C', '#FF9E4A'], speedMax: 260 });
+        floaters.add(pos.x, pos.y, val, '#FF5B7C', 22);
+        A.SFX.fail(); A.vibrate(40);
+      }
+      scores = Math.max(0, scores);
+      updateHud();
+      hook.grabbed = null;
+    }
+
+    function loop(ts) {
+      var dt = Math.min((ts - lastTs) / 1000 || 0, 0.033);
+      lastTs = ts;
+      if (running && !over) {
+        timeLeft -= dt;
+        if (timeLeft <= 0) { timeLeft = 0; checkEnd(); }
+        if (hook.state === 'swing') {
+          hook.angle += hook.dir * 1.5 * dt;
+          if (hook.angle > 1.15) hook.dir = -1;
+          if (hook.angle < -1.15) hook.dir = 1;
+        } else if (hook.state === 'extend') {
+          hook.len += 360 * dt;
+          var ex = ORIGIN.x + Math.sin(hook.angle) * hook.len;
+          var ey = ORIGIN.y + Math.cos(hook.angle) * hook.len;
+          if (ey > H - 10 || ex < 10 || ex > W - 10 || Math.hypot(ex - ORIGIN.x, ey - ORIGIN.y) > 600) grabCheck();
+          else grabCheck();
+        } else if (hook.state === 'retract') {
+          hook.len -= (hook.grabbed ? 240 : 480) * dt;
+          if (hook.grabbed) {
+            hook.grabbed.x = ORIGIN.x + Math.sin(hook.angle) * hook.len;
+            hook.grabbed.y = ORIGIN.y + Math.cos(hook.angle) * hook.len;
+          }
+          if (hook.len <= 30) {
+            hook.len = 30;
+            if (hook.grabbed) collect(hook.grabbed);
+            hook.state = 'swing';
+          }
+        }
+      }
+      particles.update(dt); floaters.update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+    function checkEnd() {
+      if (scores >= goal) {
+        // 过关
+        level++;
+        goal = Math.floor(goal * 1.5);
+        timeLeft = 60;
+        A.SFX.win();
+        floaters.add(W / 2, H / 2, '🎉 过关！目标 ' + goal, '#FFD84A', 24);
+        setTimeout(function () { if (!over) buildLevel(); }, 600);
+        updateHud();
+      } else {
+        over = true; running = false;
+        if (level - 1 > best) { best = level - 1; A.Best.set('goldminer', best); }
+        $('finalScore').textContent = scores;
+        $('endTitle').textContent = '金币不够';
+        $('endEmoji').textContent = '⛏️';
+        $('endOv').classList.add('show');
+        A.SFX.fail();
+      }
+    }
+    function draw() {
+      // 洞穴背景
+      var g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, '#5A4632'); g.addColorStop(0.3, '#3E2E1E'); g.addColorStop(1, '#241A10');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      // 土层纹理
+      ctx.fillStyle = 'rgba(255,255,255,.03)';
+      for (var i = 0; i < 30; i++) ctx.fillRect((i * 67) % W, 100 + (i * 41) % (H - 100), 6, 4);
+      // 时间条
+      ctx.fillStyle = 'rgba(0,0,0,.4)'; A.roundRectPath(ctx, 10, 10, W - 20, 16, 8); ctx.fill();
+      ctx.fillStyle = timeLeft < 15 ? '#FF5B7C' : '#FFD84A';
+      A.roundRectPath(ctx, 10, 10, (W - 20) * (timeLeft / 60), 16, 8); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('⏱ ' + Math.ceil(timeLeft) + 's', W / 2, 18);
+      // 物体
+      objects.forEach(function (o) {
+        if (o.gone) return;
+        ctx.save(); ctx.translate(o.x, o.y); ctx.rotate(o.type === 3 ? o.rot : 0);
+        if (o.type === 0) {
+          // 石头：手绘灰色石块（🪨 emoji 兼容性差）
+          var sg = ctx.createRadialGradient(-o.r * 0.3, -o.r * 0.3, 2, 0, 0, o.r);
+          sg.addColorStop(0, '#B8B8B8'); sg.addColorStop(1, '#6E6E6E');
+          ctx.fillStyle = sg;
+          ctx.beginPath();
+          ctx.moveTo(-o.r, o.r * 0.4); ctx.lineTo(-o.r * 0.7, -o.r * 0.7);
+          ctx.lineTo(0, -o.r); ctx.lineTo(o.r * 0.8, -o.r * 0.5);
+          ctx.lineTo(o.r, o.r * 0.5); ctx.lineTo(0, o.r); ctx.closePath(); ctx.fill();
+        } else {
+          ctx.font = (o.r * 2.2) + 'px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText(o.e, 0, 0);
+        }
+        ctx.restore();
+      });
+      //  miners
+      ctx.fillStyle = '#8B5A2B';
+      ctx.beginPath(); ctx.arc(ORIGIN.x, ORIGIN.y, 24, 0, 6.28); ctx.fill();
+      ctx.font = '28px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('👷', ORIGIN.x, ORIGIN.y);
+      // 钩爪绳
+      var ex = ORIGIN.x + Math.sin(hook.angle) * hook.len;
+      var ey = ORIGIN.y + Math.cos(hook.angle) * hook.len;
+      ctx.strokeStyle = '#C9A36A'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(ORIGIN.x, ORIGIN.y); ctx.lineTo(ex, ey); ctx.stroke();
+      ctx.fillStyle = '#C0C0C0';
+      ctx.beginPath(); ctx.arc(ex, ey, 8, 0, 6.28); ctx.fill();
+      ctx.textBaseline = 'alphabetic';
+      particles.draw(ctx); floaters.draw(ctx);
+    }
+
+    box.addEventListener('pointerdown', function (e) { e.preventDefault(); dropHook(); });
+    $('startBtn').addEventListener('click', start);
+    $('againBtn').addEventListener('click', reset);
+    $('resetBtn').addEventListener('click', reset);
+    $('muteBtn').addEventListener('click', function () {
+      var m = !A.isMuted(); A.setMuted(m); $('muteBtn').textContent = m ? '🔇 音效关' : '🔊 音效开';
+    });
+
+    reset();
+    requestAnimationFrame(function (t) { lastTs = t; loop(t); });
+  })();
+  </script>
+</body>
+</html>

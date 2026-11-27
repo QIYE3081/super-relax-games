@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>守卫菜园 - 超级解压小游戏</title>
+  <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body class="game-page">
+  <div data-ad-slot="banner-top" class="ad-slot-wrap"></div>
+  <div class="game-topbar">
+    <a class="back-btn" href="../../index.html">← 返回游戏大厅</a>
+    <div class="game-title">🐹 守卫菜园</div>
+  </div>
+
+  <div class="arcade-wrap">
+    <div class="arcade-hud">
+      <div class="arcade-stat"><span class="lbl">得分</span><span class="val" id="score">0</span></div>
+      <div class="arcade-stat combo"><span class="lbl">连击</span><span class="val" id="combo">0</span></div>
+      <div class="arcade-stat hi"><span class="lbl">最高</span><span class="val" id="best">0</span></div>
+    </div>
+
+    <div class="arcade-canvas-box" id="box">
+      <canvas id="cv"></canvas>
+      <div class="arcade-overlay show" id="startOv">
+        <div class="arcade-panel">
+          <div class="p-emoji">🐰</div>
+          <h2>守卫菜园</h2>
+          <p class="p-sub">打跑偷菜的家伙！🐹地鼠+10、🐰兔子+20、🌟金鼠+50；但别打⚠️稻草人（扣分）。连击攒满能量条，触发金锤暴击，得分翻倍！</p>
+          <button class="arcade-btn primary big" id="startBtn">开始游戏</button>
+        </div>
+      </div>
+      <div class="arcade-overlay" id="endOv">
+        <div class="arcade-panel">
+          <div class="p-emoji">🥕</div>
+          <h2>时间到</h2>
+          <div class="p-score">本次得分 <b id="finalScore">0</b></div>
+          <div id="newBest" class="p-new" style="display:none">🎉 新纪录！</div>
+          <button class="arcade-btn primary big" id="againBtn">再来一局</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="arcade-controls">
+      <button class="arcade-btn" id="muteBtn">🔊 音效开</button>
+      <button class="arcade-btn" id="resetBtn">↺ 重新开始</button>
+    </div>
+    <p class="arcade-tip">点击冒出的动物：地鼠+10、兔子+20、金鼠+50，稻草人扣分。连击攒满能量触发金锤暴击，60秒限时！</p>
+  </div>
+
+  <div data-ad-slot="banner-bottom" class="ad-slot-wrap"></div>
+
+  <script src="../../js/ads.js"></script>
+  <script src="../../js/arcade-kit.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var A = window.Arcade;
+    var W = 400, H = 520;
+    var cv = document.getElementById('cv');
+    var ctx = A.fitCanvas(cv, W, H);
+    var box = document.getElementById('box');
+    var $ = function (id) { return document.getElementById(id); };
+
+    // 洞位 3x3
+    var HOLES = [];
+    for (var r = 0; r < 3; r++) for (var c = 0; c < 3; c++) HOLES.push({ x: 70 + c * 130, y: 150 + r * 130 });
+    // 角色类型
+    var TYPES = [
+      { e: '🐹', score: 10, w: 55, color: '#C9A36A' },
+      { e: '🐰', score: 20, w: 25, color: '#E8E8F0' },
+      { e: '🌟', score: 50, w: 10, color: '#FFD84A' },
+      { e: '🌾', score: -15, w: 10, color: '#B08D57' }
+    ];
+
+    var scores, combo, best = A.Best.get('guard');
+    var moles, particles, floaters, hammers;
+    var running, over, lastTs, timeLeft, spawnT, energy, hammerT;
+    var nextHoleFree;
+
+    function pickType() {
+      var total = TYPES.reduce(function (s, t) { return s + t.w; }, 0);
+      var x = Math.random() * total;
+      for (var i = 0; i < TYPES.length; i++) { x -= TYPES[i].w; if (x <= 0) return i; }
+      return 0;
+    }
+    function reset() {
+      scores = 0; combo = 0; moles = [];
+      particles = new A.Particles(); floaters = new A.Floaters(); hammers = [];
+      running = false; over = false; timeLeft = 60; spawnT = 0;
+      energy = 0; hammerT = 0; nextHoleFree = 0;
+      HOLES.forEach(function (h) { h.busy = false; });
+      updateHud();
+      $('endOv').classList.remove('show');
+      $('startOv').classList.add('show');
+    }
+    function start() { $('startOv').classList.remove('show'); running = true; lastTs = performance.now(); }
+    function updateHud() { $('score').textContent = scores; $('combo').textContent = combo; $('best').textContent = best; }
+
+    function spawnMole() {
+      var free = HOLES.filter(function (h) { return !h.busy; });
+      if (!free.length) return;
+      var hole = free[A.randInt(0, free.length - 1)];
+      hole.busy = true;
+      moles.push({ hole: hole, type: pickType(), up: 0, state: 'rise', life: A.rand(1.0, 1.6), hit: false, wobble: A.rand(0, 6.28) });
+    }
+    function hitMole(m) {
+      if (m.hit) return;
+      m.hit = true; m.state = 'down';
+      var t = TYPES[m.type];
+      var mult = hammerT > 0 ? 2 : 1;
+      var pos = { x: m.hole.x, y: m.hole.y - 30 };
+      hammers.push({ x: pos.x, y: pos.y, life: 1 });
+      if (t.score < 0) {
+        scores = Math.max(0, scores + t.score); combo = 0;
+        A.SFX.fail(); A.vibrate(40);
+        floaters.add(pos.x, pos.y, '稻草人! ' + t.score, '#FF7B7B', 20);
+        particles.burst(pos.x, pos.y, { count: 12, colors: ['#B08D57'], speedMax: 180 });
+      } else {
+        combo++;
+        var gain = t.score * mult + (combo > 2 ? combo : 0);
+        scores += gain;
+        energy = Math.min(100, energy + 12 + (mult > 1 ? 5 : 0));
+        A.SFX.combo(combo); A.vibrate(15);
+        floaters.add(pos.x, pos.y, '+' + gain + (mult > 1 ? ' 暴击!' : ''), '#FFE066', 20);
+        particles.burst(pos.x, pos.y, { count: 16, colors: [t.color, '#fff'], speedMax: 240 });
+        if (energy >= 100) {
+          hammerT = 5; energy = 0;
+          floaters.add(W / 2, H / 2, '🔥 金锤暴击 5秒!', '#FFB23F', 28);
+          A.SFX.win(); A.vibrate(60);
+        }
+      }
+      updateHud();
+    }
+    function gameOver() {
+      over = true; running = false;
+      var isNew = scores > best;
+      if (isNew) { best = scores; A.Best.set('guard', best); }
+      updateHud();
+      $('finalScore').textContent = scores;
+      $('newBest').style.display = isNew ? 'inline-block' : 'none';
+      $('endOv').classList.add('show');
+      A.SFX.win();
+    }
+
+    function loop(ts) {
+      var dt = Math.min((ts - lastTs) / 1000 || 0, 0.033);
+      lastTs = ts;
+      if (running && !over) {
+        timeLeft -= dt;
+        if (timeLeft <= 0) { timeLeft = 0; gameOver(); }
+        if (hammerT > 0) hammerT -= dt;
+        spawnT -= dt;
+        if (spawnT <= 0) { spawnMole(); spawnT = A.rand(0.3, 0.6); }
+        for (var i = moles.length - 1; i >= 0; i--) {
+          var m = moles[i];
+          m.wobble += dt * 4;
+          if (m.state === 'rise') { m.up = Math.min(1, m.up + dt * 5); if (m.up >= 1) m.state = 'stay'; }
+          else if (m.state === 'stay') { m.life -= dt; if (m.life <= 0) m.state = 'down'; }
+          else if (m.state === 'down') {
+            m.up = Math.max(0, m.up - dt * 6);
+            if (m.up <= 0) { m.hole.busy = false; moles.splice(i, 1); }
+          }
+        }
+      }
+      for (var h = hammers.length - 1; h >= 0; h--) { hammers[h].life -= dt * 2; if (hammers[h].life <= 0) hammers.splice(h, 1); }
+      particles.update(dt); floaters.update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    function draw() {
+      // 菜园背景
+      var g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, '#7FD48A'); g.addColorStop(1, '#4E9E5C');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      // 草地纹理
+      ctx.fillStyle = 'rgba(255,255,255,.06)';
+      for (var i = 0; i < 40; i++) {
+        var gx = (i * 71) % W, gy = (i * 43) % H;
+        ctx.fillRect(gx, gy, 3, 8);
+      }
+      drawTopBar();
+      // 洞
+      HOLES.forEach(function (h) { drawHole(h); });
+      // 地鼠
+      moles.forEach(function (m) { drawMole(m); });
+      // 锤子
+      hammers.forEach(function (hm) {
+        ctx.save(); ctx.globalAlpha = hm.life;
+        ctx.font = '44px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.translate(hm.x, hm.y - (1 - hm.life) * 30);
+        ctx.rotate(-0.4 + hm.life * 0.4);
+        ctx.fillText(hammerT > 0 ? '🔨' : '🔨', 0, 0);
+        ctx.restore();
+      });
+      particles.draw(ctx); floaters.draw(ctx);
+    }
+    function drawHole(h) {
+      // 土堆
+      ctx.fillStyle = '#6B4E32';
+      ctx.beginPath(); ctx.ellipse(h.x, h.y + 22, 52, 20, 0, 0, 6.28); ctx.fill();
+      ctx.fillStyle = '#3E2C1A';
+      ctx.beginPath(); ctx.ellipse(h.x, h.y + 18, 40, 14, 0, 0, 6.28); ctx.fill();
+    }
+    function drawMole(m) {
+      var t = TYPES[m.type];
+      var yy = m.hole.y + 20 - m.up * 62;
+      var wob = Math.sin(m.wobble) * (m.hit ? 0.15 : 0.06);
+      ctx.save();
+      ctx.translate(m.hole.x, yy); ctx.rotate(wob);
+      // 身体
+      ctx.fillStyle = t.color;
+      ctx.beginPath(); ctx.ellipse(0, 0, 28, 32, 0, 0, 6.28); ctx.fill();
+      // 金鼠光环
+      if (m.type === 2) { ctx.strokeStyle = '#FFD84A'; ctx.lineWidth = 3; ctx.shadowColor = '#FFD84A'; ctx.shadowBlur = 12; ctx.beginPath(); ctx.arc(0, 0, 34, 0, 6.28); ctx.stroke(); ctx.shadowBlur = 0; }
+      // 脸
+      ctx.font = '40px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(t.e, 0, 0);
+      ctx.restore();
+    }
+    function drawTopBar() {
+      ctx.fillStyle = 'rgba(0,0,0,.3)';
+      A.roundRectPath(ctx, 10, 10, W - 20, 44, 14); ctx.fill();
+      // 时间
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText('⏱ ' + Math.ceil(timeLeft) + 's', 20, 32);
+      // 能量条
+      ctx.fillStyle = 'rgba(255,255,255,.25)';
+      A.roundRectPath(ctx, 100, 24, 180, 16, 8); ctx.fill();
+      var ec = hammerT > 0 ? '#FFB23F' : '#FFE066';
+      ctx.fillStyle = ec;
+      A.roundRectPath(ctx, 100, 24, 180 * (energy / 100), 16, 8); ctx.fill();
+      ctx.fillStyle = '#333'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(hammerT > 0 ? '🔥 金锤暴击中 ' + Math.ceil(hammerT) + 's' : '能量 ' + Math.floor(energy) + '%', 190, 33);
+      ctx.textBaseline = 'alphabetic';
+    }
+
+    box.addEventListener('pointerdown', function (e) {
+      e.preventDefault(); if (!running || over) return;
+      var rect = cv.getBoundingClientRect();
+      var px = (e.clientX - rect.left) / rect.width * W;
+      var py = (e.clientY - rect.top) / rect.height * H;
+      // 找点到的地鼠（从前往后）
+      for (var i = moles.length - 1; i >= 0; i--) {
+        var m = moles[i];
+        var my = m.hole.y + 20 - m.up * 62;
+        if (Math.hypot(px - m.hole.x, py - my) < 42) { hitMole(m); break; }
+      }
+    });
+    $('startBtn').addEventListener('click', start);
+    $('againBtn').addEventListener('click', reset);
+    $('resetBtn').addEventListener('click', reset);
+    $('muteBtn').addEventListener('click', function () {
+      var m = !A.isMuted(); A.setMuted(m); $('muteBtn').textContent = m ? '🔇 音效关' : '🔊 音效开';
+    });
+
+    reset();
+    requestAnimationFrame(function (t) { lastTs = t; loop(t); });
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>云端跳跳兔 - 超级解压小游戏</title>
+  <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body class="game-page">
+  <div data-ad-slot="banner-top" class="ad-slot-wrap"></div>
+  <div class="game-topbar">
+    <a class="back-btn" href="../../index.html">← 返回游戏大厅</a>
+    <div class="game-title">🐰 云端跳跳兔</div>
+  </div>
+
+  <div class="arcade-wrap">
+    <div class="arcade-hud">
+      <div class="arcade-stat"><span class="lbl">得分</span><span class="val" id="score">0</span></div>
+      <div class="arcade-stat combo"><span class="lbl">胡萝卜</span><span class="val" id="carrots">0</span></div>
+      <div class="arcade-stat hi"><span class="lbl">最高</span><span class="val" id="best">0</span></div>
+    </div>
+
+    <div class="arcade-canvas-box" id="box">
+      <canvas id="cv"></canvas>
+      <div class="arcade-overlay show" id="startOv">
+        <div class="arcade-panel">
+          <div class="p-emoji">🐰</div>
+          <h2>云端跳跳兔</h2>
+          <p class="p-sub">小兔子自动向前跑，点击/空格让它跳跃，躲开障碍物，收集🥕胡萝卜。点得越久跳得越有节奏，看你能跑多远！撞到障碍就结束。</p>
+          <button class="arcade-btn primary big" id="startBtn">开始游戏</button>
+        </div>
+      </div>
+      <div class="arcade-overlay" id="endOv">
+        <div class="arcade-panel">
+          <div class="p-emoji">🐰</div>
+          <h2>撞到啦</h2>
+          <div class="p-score">本次得分 <b id="finalScore">0</b></div>
+          <div id="newBest" class="p-new" style="display:none">🎉 新纪录！</div>
+          <button class="arcade-btn primary big" id="againBtn">再来一局</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="arcade-controls">
+      <button class="arcade-btn" id="jumpBtn">⬆ 跳跃</button>
+      <button class="arcade-btn" id="muteBtn">🔊 音效开</button>
+      <button class="arcade-btn" id="resetBtn">↺ 重新开始</button>
+    </div>
+    <p class="arcade-tip">点击画面/空格/跳跃按钮让兔子起跳，躲开仙人掌和岩石，收集胡萝卜加分。跑得越远越快！</p>
+  </div>
+
+  <div data-ad-slot="banner-bottom" class="ad-slot-wrap"></div>
+
+  <script src="../../js/ads.js"></script>
+  <script src="../../js/arcade-kit.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var A = window.Arcade;
+    var W = 400, H = 480;
+    var cv = document.getElementById('cv');
+    var ctx = A.fitCanvas(cv, W, H);
+    var box = document.getElementById('box');
+    var $ = function (id) { return document.getElementById(id); };
+    var GROUND = H - 70;
+    var BUNNY_X = 90;
+
+    var scores, carrots, best = A.Best.get('bunny');
+    var bunny, obstacles, clouds, particles, floaters;
+    var running, over, lastTs, speed, spawnT, distance, jumpQueued;
+
+    function reset() {
+      scores = 0; carrots = 0; running = false; over = false;
+      speed = 190; spawnT = 1.2; distance = 0; jumpQueued = false;
+      bunny = { y: GROUND - 30, vy: 0, onGround: true, frame: 0 };
+      obstacles = []; particles = new A.Particles(); floaters = new A.Floaters();
+      clouds = [];
+      for (var i = 0; i < 6; i++) clouds.push({ x: A.rand(0, W), y: A.rand(40, 200), s: A.rand(0.6, 1.4), v: A.rand(10, 30) });
+      updateHud();
+      $('endOv').classList.remove('show');
+      $('startOv').classList.add('show');
+    }
+    function start() { $('startOv').classList.remove('show'); running = true; lastTs = performance.now(); }
+    function updateHud() { $('score').textContent = scores; $('carrots').textContent = carrots; $('best').textContent = best; }
+    function jump() {
+      if (!running || over) return;
+      if (bunny.onGround) {
+        bunny.vy = -560; bunny.onGround = false; jumpQueued = false;
+        A.SFX.jump(); A.vibrate(12);
+      }
+    }
+    function spawnObstacle() {
+      var types = ['cactus', 'rock', 'carrot', 'carrot', 'carrot'];
+      var type = types[A.randInt(0, types.length - 1)];
+      // 胡萝卜可能高空，需要跳起吃
+      var high = (type === 'carrot' && Math.random() < 0.5);
+      obstacles.push({
+        type: type, x: W + 40,
+        y: high ? GROUND - 100 : GROUND - (type === 'cactus' ? 30 : 20),
+        w: type === 'cactus' ? 26 : 30, h: type === 'cactus' ? 50 : (type === 'rock' ? 36 : 30),
+        passed: false, collected: false, bob: A.rand(0, 6.28)
+      });
+    }
+
+    function loop(ts) {
+      var dt = Math.min((ts - lastTs) / 1000 || 0, 0.033);
+      lastTs = ts;
+      if (running && !over) {
+        distance += speed * dt;
+        scores = Math.floor(distance / 10);
+        speed = Math.min(340, 190 + distance / 60);
+        updateHud();
+        // 兔子物理
+        bunny.vy += 1500 * dt;
+        bunny.y += bunny.vy * dt;
+        if (bunny.y >= GROUND - 30) { bunny.y = GROUND - 30; bunny.vy = 0; bunny.onGround = true; }
+        bunny.frame += dt * (bunny.onGround ? speed / 30 : 8);
+        // 障碍生成
+        spawnT -= dt;
+        if (spawnT <= 0) { spawnObstacle(); spawnT = A.rand(0.8, 1.5) * (240 / speed); }
+        // 障碍移动
+        for (var i = obstacles.length - 1; i >= 0; i--) {
+          var o = obstacles[i];
+          o.x -= speed * dt;
+          o.bob += dt * 3;
+          if (o.type === 'carrot') o.y += Math.sin(o.bob) * 0.6;
+          // 碰撞
+          var bx1 = BUNNY_X - 18, bx2 = BUNNY_X + 18;
+          var by1 = bunny.y - 24, by2 = bunny.y + 24;
+          if (!o.collected && o.x + o.w / 2 > bx1 && o.x - o.w / 2 < bx2 && o.y + o.h / 2 > by1 && o.y - o.h / 2 < by2) {
+            if (o.type === 'carrot') {
+              o.collected = true; carrots++;
+              scores += 50; updateHud();
+              A.SFX.eat(); A.vibrate(10);
+              particles.burst(o.x, o.y, { count: 10, colors: ['#FF9E4A', '#FFE066'], speedMax: 180 });
+              floaters.add(o.x, o.y, '+50 🥕', '#FFE066', 16);
+            } else {
+              gameOver();
+            }
+          }
+          if (o.x < -50) obstacles.splice(i, 1);
+        }
+      }
+      clouds.forEach(function (c) { c.x -= c.v * dt; if (c.x < -80) { c.x = W + 80; c.y = A.rand(40, 200); } });
+      particles.update(dt); floaters.update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+    function gameOver() {
+      over = true; running = false;
+      var isNew = scores > best;
+      if (isNew) { best = scores; A.Best.set('bunny', best); }
+      updateHud();
+      $('finalScore').textContent = scores;
+      $('newBest').style.display = isNew ? 'inline-block' : 'none';
+      $('endOv').classList.add('show');
+      A.SFX.fail(); A.vibrate(60);
+    }
+    function draw() {
+      // 天空视差
+      var g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, '#87CEEB'); g.addColorStop(0.6, '#B8E4F5'); g.addColorStop(1, '#E8F8E0');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      // 远山
+      ctx.fillStyle = 'rgba(120,180,200,.4)';
+      for (var m = 0; m < 4; m++) {
+        var mx = ((m * 160 - distance * 0.15) % (W + 200)) - 100;
+        ctx.beginPath(); ctx.moveTo(mx, GROUND); ctx.lineTo(mx + 100, GROUND - 120); ctx.lineTo(mx + 200, GROUND); ctx.fill();
+      }
+      // 云
+      clouds.forEach(function (c) {
+        ctx.fillStyle = 'rgba(255,255,255,.8)';
+        ctx.beginPath(); ctx.arc(c.x, c.y, 22 * c.s, 0, 6.28); ctx.arc(c.x + 20 * c.s, c.y - 8 * c.s, 28 * c.s, 0, 6.28); ctx.arc(c.x + 44 * c.s, c.y, 20 * c.s, 0, 6.28); ctx.fill();
+      });
+      // 地面
+      ctx.fillStyle = '#7CBF5E'; ctx.fillRect(0, GROUND, W, H - GROUND);
+      ctx.fillStyle = '#68A84E'; ctx.fillRect(0, GROUND, W, 6);
+      // 地面移动纹理
+      ctx.fillStyle = 'rgba(255,255,255,.15)';
+      for (var t = 0; t < 20; t++) {
+        var tx = ((t * 60 - distance) % (W + 60));
+        if (tx >= 0) ctx.fillRect(tx, GROUND + 20, 20, 4);
+      }
+      // 障碍
+      obstacles.forEach(function (o) {
+        if (o.collected) return;
+        ctx.save(); ctx.translate(o.x, o.y);
+        if (o.type === 'carrot') {
+          ctx.font = '32px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.shadowColor = '#FF9E4A'; ctx.shadowBlur = 12; ctx.fillText('🥕', 0, 0);
+        } else if (o.type === 'cactus') {
+          ctx.fillStyle = '#3E9E5C'; A.roundRectPath(ctx, -10, -25, 20, 50, 8); ctx.fill();
+          ctx.fillStyle = '#2E8E4C'; A.roundRectPath(ctx, -20, -10, 10, 22, 5); ctx.fill(); A.roundRectPath(ctx, 10, -16, 10, 20, 5); ctx.fill();
+        } else {
+          ctx.fillStyle = '#888'; ctx.beginPath(); ctx.ellipse(0, 0, o.w / 2, o.h / 2, 0, 0, 6.28); ctx.fill();
+          ctx.fillStyle = '#AAA'; ctx.beginPath(); ctx.ellipse(-4, -5, 6, 4, -0.5, 0, 6.28); ctx.fill();
+        }
+        ctx.restore();
+      });
+      // 兔子
+      drawBunny();
+      particles.draw(ctx); floaters.draw(ctx);
+    }
+    function drawBunny() {
+      var x = BUNNY_X, y = bunny.y;
+      ctx.save(); ctx.translate(x, y);
+      // 耳朵
+      ctx.fillStyle = '#FFF';
+      var earWave = Math.sin(bunny.frame) * 4;
+      ctx.beginPath(); ctx.ellipse(-8, -32 + earWave, 7, 18, -0.2, 0, 6.28); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(8, -34 - earWave, 7, 18, 0.2, 0, 6.28); ctx.fill();
+      ctx.fillStyle = '#FFB6C1';
+      ctx.beginPath(); ctx.ellipse(-8, -32 + earWave, 3, 12, -0.2, 0, 6.28); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(8, -34 - earWave, 3, 12, 0.2, 0, 6.28); ctx.fill();
+      // 身体
+      ctx.fillStyle = '#FFF'; ctx.beginPath(); ctx.ellipse(0, 0, 20, 22, 0, 0, 6.28); ctx.fill();
+      // 脸
+      ctx.fillStyle = '#333'; ctx.beginPath(); ctx.arc(-7, -4, 2.5, 0, 6.28); ctx.fill(); ctx.beginPath(); ctx.arc(7, -4, 2.5, 0, 6.28); ctx.fill();
+      ctx.fillStyle = '#FF8FA3'; ctx.beginPath(); ctx.arc(0, 2, 3, 0, 6.28); ctx.fill();
+      // 腿（跑动）
+      ctx.fillStyle = '#FFF';
+      var legWave = bunny.onGround ? Math.sin(bunny.frame) * 8 : 6;
+      ctx.beginPath(); ctx.ellipse(-10, 20 + legWave, 8, 5, 0, 0, 6.28); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(10, 20 - legWave, 8, 5, 0, 0, 6.28); ctx.fill();
+      ctx.restore();
+    }
+
+    box.addEventListener('pointerdown', function (e) { e.preventDefault(); jump(); });
+    window.addEventListener('keydown', function (e) { if (e.code === 'Space' || e.key === 'ArrowUp') { e.preventDefault(); jump(); } });
+    $('jumpBtn').addEventListener('click', jump);
+    $('startBtn').addEventListener('click', start);
+    $('againBtn').addEventListener('click', reset);
+    $('resetBtn').addEventListener('click', reset);
+    $('muteBtn').addEventListener('click', function () {
+      var m = !A.isMuted(); A.setMuted(m); $('muteBtn').textContent = m ? '🔇 音效关' : '🔊 音效开';
+    });
+
+    reset();
+    requestAnimationFrame(function (t) { lastTs = t; loop(t); });
+  })();
+  </script>
+</body>
+</html>

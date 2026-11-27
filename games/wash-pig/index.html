@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>冲洗小猪 - 超级解压小游戏</title>
+  <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body class="game-page">
+  <div data-ad-slot="banner-top" class="ad-slot-wrap"></div>
+
+  <div class="game-topbar">
+    <a class="back-btn" href="../../index.html">← 返回游戏大厅</a>
+    <div class="game-title">🐷 冲洗小猪</div>
+  </div>
+
+  <div class="game-stage">
+    <div class="stage-panel">
+      <div class="progress-wrap">
+        <span class="face-tag" id="faceTag">第 1 面 / 共 2 面</span>
+        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+        <span id="progressText">正面清洁度 0%</span>
+      </div>
+
+      <canvas id="gameCanvas"></canvas>
+
+      <div class="game-controls">
+        <button class="ctrl-btn primary" id="flipBtn">🔄 翻面洗另一面</button>
+        <button class="ctrl-btn" id="muteBtn">🔊 音效开</button>
+        <button class="ctrl-btn" data-action="reset">↺ 重新开始</button>
+      </div>
+      <p class="game-tip">按住画面右下角的水龙头出水，移动鼠标/手指控制水流方向。正反两面都要洗净才算完成哦～</p>
+    </div>
+  </div>
+
+  <div data-ad-slot="banner-bottom" class="ad-slot-wrap"></div>
+
+  <div class="done-overlay" id="doneOverlay">
+    <div class="done-card">
+      <span class="done-emoji" id="doneEmoji">🐷</span>
+      <div class="done-text">
+        <strong>洗干净啦！</strong>
+        <span id="thanksText">谢谢！</span>
+      </div>
+      <div class="done-actions">
+        <button class="done-btn ghost" id="enjoyBtn">🔄 翻面欣赏</button>
+        <button class="done-btn primary" data-action="reset">再洗一次</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../../js/ads.js"></script>
+  <script src="../../js/clean-wash-engine.js"></script>
+  <script>
+    window.CleanWash.create({
+      canvasId: 'gameCanvas',
+      progressFillId: 'progressFill',
+      progressTextId: 'progressText',
+      faceTagId: 'faceTag',
+      flipBtnId: 'flipBtn',
+      muteBtnId: 'muteBtn',
+      doneOverlayId: 'doneOverlay',
+      thanksTextId: 'thanksText',
+      doneEmojiId: 'doneEmoji',
+      thanks: '两面都洗得干干净净，我又开心又舒服，谢谢你！',
+      doneEmoji: '🐷',
+      brush: 24,
+      sides: [
+        { clean: '../../assets/pig-clean.webp', dirty: '../../assets/pig-dirty.webp' },
+        { clean: '../../assets/pig-back-clean.webp', dirty: '../../assets/pig-back-dirty.webp' }
+      ]
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>弹射水果砸瓶 - 超级解压小游戏</title>
+  <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body class="game-page">
+  <div data-ad-slot="banner-top" class="ad-slot-wrap"></div>
+  <div class="game-topbar">
+    <a class="back-btn" href="../../index.html">← 返回游戏大厅</a>
+    <div class="game-title">🍎 弹射水果砸瓶</div>
+  </div>
+
+  <div class="arcade-wrap">
+    <div class="arcade-hud">
+      <div class="arcade-stat"><span class="lbl">关卡</span><span class="val" id="level">1</span></div>
+      <div class="arcade-stat combo"><span class="lbl">剩余弹药</span><span class="val" id="ammo">5</span></div>
+      <div class="arcade-stat hi"><span class="lbl">最高</span><span class="val" id="best">0</span></div>
+    </div>
+
+    <div class="arcade-canvas-box" id="box">
+      <canvas id="cv"></canvas>
+      <div class="arcade-overlay show" id="startOv">
+        <div class="arcade-panel">
+          <div class="p-emoji">🍎</div>
+          <h2>弹射水果砸瓶</h2>
+          <p class="p-sub">拖动弹弓瞄准，松手发射水果，把堆叠的瓶子全部砸倒！一发砸倒多个有额外奖励。关卡越往后越难，弹药有限哦。</p>
+          <button class="arcade-btn primary big" id="startBtn">开始游戏</button>
+        </div>
+      </div>
+      <div class="arcade-overlay" id="endOv">
+        <div class="arcade-panel">
+          <div class="p-emoji" id="endEmoji">🏆</div>
+          <h2 id="endTitle">过关啦</h2>
+          <div class="p-score">到达关卡 <b id="finalScore">1</b></div>
+          <div id="newBest" class="p-new" style="display:none">🎉 新纪录！</div>
+          <button class="arcade-btn primary big" id="againBtn">再来一局</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="arcade-controls">
+      <button class="arcade-btn" id="muteBtn">🔊 音效开</button>
+      <button class="arcade-btn" id="resetBtn">↺ 重新开始</button>
+    </div>
+    <p class="arcade-tip">按住弹弓往后拉，松手发射。砸倒全部瓶子过关，一发多杀有奖励！弹药有限，瞄准再射。</p>
+  </div>
+
+  <div data-ad-slot="banner-bottom" class="ad-slot-wrap"></div>
+
+  <script src="../../js/ads.js"></script>
+  <script src="../../js/arcade-kit.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var A = window.Arcade;
+    var W = 400, H = 560;
+    var cv = document.getElementById('cv');
+    var ctx = A.fitCanvas(cv, W, H);
+    var box = document.getElementById('box');
+    var $ = function (id) { return document.getElementById(id); };
+
+    var FRUITS = ['🍎', '🍊', '🍉', '🍐', '🍍'];
+    var SLING = { x: 70, y: H - 90 };
+    var GROUND = H - 40;
+
+    var level, ammo, best = A.Best.get('slingshot');
+    var bottles, projectile, particles, floaters, running, over, lastTs, settleT;
+    var dragging, dragPos, shotsFired;
+
+    function reset() {
+      level = 1; ammo = 5; bottles = []; projectile = null;
+      particles = new A.Particles(); floaters = new A.Floaters();
+      running = false; over = false; lastTs = performance.now();
+      dragging = false; dragPos = null; shotsFired = 0;
+      buildLevel();
+      updateHud();
+      $('endOv').classList.remove('show');
+      $('startOv').classList.add('show');
+    }
+    function start() { $('startOv').classList.remove('show'); running = true; lastTs = performance.now(); }
+    function updateHud() {
+      $('level').textContent = level;
+      $('ammo').textContent = ammo;
+      $('best').textContent = best;
+    }
+    function buildLevel() {
+      bottles = [];
+      var cols = Math.min(3 + Math.floor(level / 2), 5);
+      var rows = Math.min(2 + Math.floor(level / 3), 5);
+      var bx = W - 70 - cols * 26;
+      for (var r = 0; r < rows; r++) {
+        for (var c = 0; c < cols; c++) {
+          // 金字塔：上层少一个
+          if (r > 0 && c === 0 && level % 2 === 0) continue;
+          bottles.push({
+            x: bx + c * 26 + (r % 2 ? 13 : 0), y: GROUND - 20 - r * 34,
+            vx: 0, vy: 0, w: 20, h: 30, angle: 0, av: 0, falling: false, alive: true
+          });
+        }
+      }
+      ammo = 4 + Math.min(level, 4);
+      shotsFired = 0;
+    }
+
+    function launch() {
+      if (!running || over || projectile || ammo <= 0 || !dragPos) return;
+      var dx = SLING.x - dragPos.x, dy = SLING.y - dragPos.y;
+      var power = Math.hypot(dx, dy);
+      if (power < 10) return;
+      power = Math.min(power, 110);
+      var speed = power * 7.5;
+      projectile = {
+        x: SLING.x, y: SLING.y,
+        vx: dx / Math.hypot(dx, dy) * speed,
+        vy: dy / Math.hypot(dx, dy) * speed,
+        type: FRUITS[(level - 1) % FRUITS.length], r: 15, active: true
+      };
+      ammo--; shotsFired++;
+      A.SFX.jump(); A.vibrate(15);
+      updateHud();
+      dragging = false; dragPos = null;
+    }
+
+    // 简易物理：瓶子受重力，被撞产生速度/旋转，倒地(Falling)后判定
+    function physics(dt) {
+      // 投射物
+      if (projectile && projectile.active) {
+        var p = projectile;
+        p.vy += 900 * dt;
+        p.x += p.vx * dt; p.y += p.vy * dt;
+        // 碰瓶子
+        for (var i = 0; i < bottles.length; i++) {
+          var b = bottles[i];
+          if (!b.alive) continue;
+          if (Math.abs(p.x - b.x) < b.w / 2 + p.r && Math.abs(p.y - b.y) < b.h / 2 + p.r) {
+            var force = Math.hypot(p.vx, p.vy);
+            b.vx += (p.vx > 0 ? 1 : -1) * force * 0.45;
+            b.vy -= Math.abs(force) * 0.25;
+            b.av += (Math.random() - 0.5) * 6;
+            b.falling = true;
+            particles.burst(b.x, b.y, { count: 10, colors: ['#C9A36A', '#fff'], speedMax: 200 });
+            A.SFX.score(); A.vibrate(20);
+            // 投射物反弹减速
+            p.vx *= -0.3; p.vy *= -0.3;
+            break;
+          }
+        }
+        // 落地
+        if (p.y + p.r > GROUND) { p.y = GROUND - p.r; p.vy *= -0.3; p.vx *= 0.6; if (Math.abs(p.vy) < 40) p.active = false; }
+        if (p.x > W + 50 || p.x < -50 || p.y > H + 50) p.active = false;
+      }
+      // 瓶子
+      var knocked = 0;
+      for (var j = 0; j < bottles.length; j++) {
+        var bt = bottles[j];
+        if (!bt.alive) continue;
+        if (bt.falling || bt.y < GROUND - 20) {
+          bt.vy += 900 * dt;
+          bt.x += bt.vx * dt; bt.y += bt.vy * dt; bt.angle += bt.av * dt;
+          bt.vx *= 0.99;
+          if (bt.y + bt.h / 2 > GROUND) {
+            bt.y = GROUND - bt.h / 2;
+            if (Math.abs(bt.vy) > 60) { bt.vy *= -0.25; bt.vx *= 0.7; }
+            else { bt.vy = 0; bt.av *= 0.6; }
+          }
+          // 倒地判定：角度较大或位置偏移
+          if (Math.abs(bt.angle) > 0.7 || bt.y > GROUND - bt.h / 2 + 2) {
+            if (!bt.knocked) { bt.knocked = true; knocked++; }
+          }
+        }
+      }
+      if (knocked > 0) {
+        var gain = knocked * 10;
+        floaters.add(W - 80, 120, '砸倒 ' + knocked + ' 个 +' + gain, '#FFE066', 18);
+        A.SFX.combo(knocked);
+      }
+    }
+    function allDown() {
+      return bottles.every(function (b) { return !b.alive || b.knocked || b.falling; });
+    }
+    function checkState(dt) {
+      if (!projectile || !projectile.active) {
+        settleT += dt;
+        if (settleT > 0.8) {
+          // 检查是否全倒
+          var standing = bottles.filter(function (b) { return !b.knocked && !b.falling; }).length;
+          if (standing === 0) nextLevel();
+          else if (ammo <= 0) gameOver(false);
+          else { projectile = null; settleT = 0; }
+        }
+      } else settleT = 0;
+    }
+    function nextLevel() {
+      var isNew = level > best;
+      if (isNew) { best = level; A.Best.set('slingshot', best); }
+      level++;
+      projectile = null; settleT = 0;
+      A.SFX.win(); A.vibrate(40);
+      floaters.add(W / 2, H / 2, '🎉 过关！', '#FFD84A', 30);
+      setTimeout(function () { if (!over) { buildLevel(); updateHud(); } }, 700);
+    }
+    function gameOver(win) {
+      over = true; running = false;
+      var isNew = (level - 1) > best;
+      if (isNew) { best = level - 1; A.Best.set('slingshot', best); }
+      updateHud();
+      $('finalScore').textContent = level - 1;
+      $('endTitle').textContent = '弹药耗尽';
+      $('endEmoji').textContent = '🍎';
+      $('newBest').style.display = isNew ? 'inline-block' : 'none';
+      $('endOv').classList.add('show');
+      A.SFX.fail();
+    }
+
+    function loop(ts) {
+      var dt = Math.min((ts - lastTs) / 1000 || 0, 0.033);
+      lastTs = ts;
+      if (running && !over) {
+        physics(dt);
+        checkState(dt);
+      }
+      particles.update(dt); floaters.update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+    function draw() {
+      // 天空
+      var g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, '#87CEEB'); g.addColorStop(0.7, '#C8E8F5'); g.addColorStop(1, '#E8F5D8');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      // 云
+      ctx.fillStyle = 'rgba(255,255,255,.7)';
+      for (var i = 0; i < 4; i++) {
+        var cx = (i * 110 + 40) % W, cy = 60 + i * 25;
+        ctx.beginPath(); ctx.arc(cx, cy, 24, 0, 6.28); ctx.arc(cx + 22, cy - 8, 30, 0, 6.28); ctx.arc(cx + 46, cy, 22, 0, 6.28); ctx.fill();
+      }
+      // 地面
+      ctx.fillStyle = '#7CBF5E'; ctx.fillRect(0, GROUND, W, H - GROUND);
+      ctx.fillStyle = '#68A84E'; ctx.fillRect(0, GROUND, W, 6);
+      // 瓶子
+      bottles.forEach(function (b) { drawBottle(b); });
+      // 弹弓
+      drawSling();
+      // 投射物
+      if (projectile && projectile.active) {
+        ctx.font = '30px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(projectile.type, projectile.x, projectile.y);
+      }
+      particles.draw(ctx); floaters.draw(ctx);
+    }
+    function drawBottle(b) {
+      ctx.save();
+      ctx.translate(b.x, b.y); ctx.rotate(b.angle);
+      // 瓶身
+      var g = ctx.createLinearGradient(-b.w / 2, 0, b.w / 2, 0);
+      g.addColorStop(0, '#4E9E5C'); g.addColorStop(0.5, '#7FD48A'); g.addColorStop(1, '#3E8E4C');
+      ctx.fillStyle = g;
+      A.roundRectPath(ctx, -b.w / 2, -b.h / 2, b.w, b.h, 5); ctx.fill();
+      // 瓶盖
+      ctx.fillStyle = '#C9A36A'; ctx.fillRect(-5, -b.h / 2 - 6, 10, 7);
+      ctx.restore();
+    }
+    function drawSling() {
+      // 叉子
+      ctx.strokeStyle = '#8B5A2B'; ctx.lineWidth = 8; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(SLING.x, SLING.y + 40); ctx.lineTo(SLING.x, SLING.y); ctx.stroke();
+      ctx.lineWidth = 6;
+      ctx.beginPath(); ctx.moveTo(SLING.x, SLING.y); ctx.lineTo(SLING.x - 16, SLING.y - 24); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(SLING.x, SLING.y); ctx.lineTo(SLING.x + 16, SLING.y - 24); ctx.stroke();
+      // 皮筋
+      var pull = dragPos || { x: SLING.x, y: SLING.y - 4 };
+      ctx.strokeStyle = '#6B3F2A'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(SLING.x - 16, SLING.y - 24); ctx.lineTo(pull.x, pull.y); ctx.lineTo(SLING.x + 16, SLING.y - 24); ctx.stroke();
+      // 待发水果
+      if (!projectile && ammo > 0) {
+        ctx.font = '30px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(FRUITS[(level - 1) % FRUITS.length], pull.x, pull.y);
+      }
+    }
+
+    function setPoint(e) {
+      var rect = cv.getBoundingClientRect();
+      return { x: (e.clientX - rect.left) / rect.width * W, y: (e.clientY - rect.top) / rect.height * H };
+    }
+    box.addEventListener('pointerdown', function (e) {
+      e.preventDefault(); if (!running || over || projectile || ammo <= 0) return;
+      dragging = true; dragPos = setPoint(e);
+    });
+    box.addEventListener('pointermove', function (e) {
+      if (!dragging) return;
+      var p = setPoint(e);
+      // 限制拉动距离
+      var dx = p.x - SLING.x, dy = p.y - SLING.y;
+      var d = Math.hypot(dx, dy);
+      if (d > 110) { p.x = SLING.x + dx / d * 110; p.y = SLING.y + dy / d * 110; }
+      dragPos = p;
+    });
+    window.addEventListener('pointerup', function () {
+      if (dragging) { dragging = false; launch(); }
+    });
+    $('startBtn').addEventListener('click', start);
+    $('againBtn').addEventListener('click', reset);
+    $('resetBtn').addEventListener('click', reset);
+    $('muteBtn').addEventListener('click', function () {
+      var m = !A.isMuted(); A.setMuted(m); $('muteBtn').textContent = m ? '🔇 音效关' : '🔊 音效开';
+    });
+
+    reset();
+    requestAnimationFrame(function (t) { lastTs = t; loop(t); });
+  })();
+  </script>
+</body>
+</html>

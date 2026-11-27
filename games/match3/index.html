@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>羊了个羊 - 超级解压小游戏</title>
+  <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body class="game-page">
+  <div data-ad-slot="banner-top" class="ad-slot-wrap"></div>
+  <div class="game-topbar">
+    <a class="back-btn" href="../../index.html">← 返回游戏大厅</a>
+    <div class="game-title">🐑 羊了个羊</div>
+  </div>
+
+  <div class="arcade-wrap">
+    <div class="arcade-hud">
+      <div class="arcade-stat"><span class="lbl">得分</span><span class="val" id="score">0</span></div>
+      <div class="arcade-stat combo"><span class="lbl">剩余</span><span class="val" id="remain">0</span></div>
+      <div class="arcade-stat hi"><span class="lbl">最高</span><span class="val" id="best">0</span></div>
+    </div>
+
+    <div class="arcade-canvas-box" id="box">
+      <canvas id="cv"></canvas>
+      <div class="arcade-overlay show" id="startOv">
+        <div class="arcade-panel">
+          <div class="p-emoji">🐑</div>
+          <h2>羊了个羊</h2>
+          <p class="p-sub">点击最上层的图案放进下方槽位，集齐 3 个相同的就能消除。槽位只有 7 格，放满就输啦！看清顺序，别急。</p>
+          <button class="arcade-btn primary big" id="startBtn">开始游戏</button>
+        </div>
+      </div>
+      <div class="arcade-overlay" id="endOv">
+        <div class="arcade-panel">
+          <div class="p-emoji" id="endEmoji">😵</div>
+          <h2 id="endTitle">槽位满啦</h2>
+          <div class="p-score">本次得分 <b id="finalScore">0</b></div>
+          <div id="newBest" class="p-new" style="display:none">🎉 新纪录！</div>
+          <button class="arcade-btn primary big" id="againBtn">再来一局</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="arcade-controls">
+      <button class="arcade-btn" id="hintBtn">💡 提示（<span id="hintLeft">3</span>）</button>
+      <button class="arcade-btn" id="muteBtn">🔊 音效开</button>
+      <button class="arcade-btn" id="resetBtn">↺ 重新开始</button>
+    </div>
+    <p class="arcade-tip">只能点最上层没被压住的图案。集齐三个相同自动消除，槽位满了就失败——策略很重要！</p>
+  </div>
+
+  <div data-ad-slot="banner-bottom" class="ad-slot-wrap"></div>
+
+  <script src="../../js/ads.js"></script>
+  <script src="../../js/arcade-kit.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var A = window.Arcade;
+    var W = 400, H = 620;
+    var cv = document.getElementById('cv');
+    var ctx = A.fitCanvas(cv, W, H);
+    var box = document.getElementById('box');
+    var $ = function (id) { return document.getElementById(id); };
+
+    var EMOJI = ['🐑', '🐷', '🐶', '🐱', '🐰', '🐼', '🐻', '🦊', '🐸', '🐵'];
+    var CELL = 48;
+    var SLOT_N = 7, SLOT_Y = 520, SLOT_X = 20, SLOT_GAP = 4;
+    var SLOT_W = SLOT_N * CELL + (SLOT_N - 1) * SLOT_GAP;
+
+    var tiles = [], slots = [], score = 0, combo = 0, best = A.Best.get('match3');
+    var hints = 3, hintId = -1, hintT = 0, running = false, over = false, floaters = [];
+    var lastTs = 0;
+
+    function makeTiles() {
+      // 三层错位堆叠，总数 60（20 组 × 3）
+      var spots = [];
+      var layers = [
+        { cols: 6, rows: 5, x: 34, y: 58, layer: 0 },
+        { cols: 5, rows: 4, x: 56, y: 80, layer: 1 },
+        { cols: 5, rows: 2, x: 78, y: 102, layer: 2 }
+      ];
+      layers.forEach(function (L) {
+        for (var r = 0; r < L.rows; r++) {
+          for (var c = 0; c < L.cols; c++) {
+            spots.push({ x: L.x + c * 52, y: L.y + r * 52, layer: L.layer });
+          }
+        }
+      });
+      // 打乱位置
+      for (var i = spots.length - 1; i > 0; i--) {
+        var j = A.randInt(0, i);
+        var t = spots[i]; spots[i] = spots[j]; spots[j] = t;
+      }
+      // 图案：每组 3 个相同，共 20 组
+      var kinds = [];
+      for (var g = 0; g < 20; g++) {
+        var k = A.randInt(0, EMOJI.length - 1);
+        kinds.push(k, k, k);
+      }
+      for (var q = kinds.length - 1; q > 0; q--) {
+        var p = A.randInt(0, q);
+        var tmp = kinds[q]; kinds[q] = kinds[p]; kinds[p] = tmp;
+      }
+      tiles = spots.map(function (s, idx) {
+        return { id: idx, x: s.x, y: s.y, layer: s.layer, kind: kinds[idx], removed: false, locked: false };
+      });
+      refreshLocked();
+    }
+
+    function refreshLocked() {
+      var alive = tiles.filter(function (t) { return !t.removed; });
+      alive.forEach(function (a) {
+        a.locked = false;
+        for (var i = 0; i < alive.length; i++) {
+          var b = alive[i];
+          if (b.layer <= a.layer) continue;
+          var ox = Math.min(a.x + CELL, b.x + CELL) - Math.max(a.x, b.x);
+          var oy = Math.min(a.y + CELL, b.y + CELL) - Math.max(a.y, b.y);
+          if (ox > 8 && oy > 8) { a.locked = true; break; }
+        }
+      });
+    }
+
+    function reset() {
+      score = 0; combo = 0; slots = []; hints = 3; hintId = -1; hintT = 0;
+      over = false; running = false; floaters = [];
+      makeTiles();
+      updateHud();
+      $('endOv').classList.remove('show');
+      $('startOv').classList.add('show');
+    }
+    function start() { $('startOv').classList.remove('show'); running = true; }
+    function updateHud() {
+      $('score').textContent = score;
+      $('best').textContent = best;
+      $('remain').textContent = tiles.filter(function (t) { return !t.removed; }).length;
+      $('hintLeft').textContent = hints;
+    }
+
+    function pick(tile) {
+      if (!running || over || tile.removed || tile.locked) return;
+      tile.removed = true;
+      slots.push(tile.kind);
+      A.SFX.click();
+      A.vibrate(12);
+      hintId = -1;
+
+      // 三消检测
+      var cnt = {};
+      slots.forEach(function (k) { cnt[k] = (cnt[k] || 0) + 1; });
+      var found = -1;
+      for (var key in cnt) { if (cnt[key] >= 3) { found = parseInt(key, 10); break; } }
+      if (found >= 0) {
+        var removed = 0;
+        slots = slots.filter(function (k) {
+          if (k === found && removed < 3) { removed++; return false; }
+          return true;
+        });
+        combo++;
+        var gain = 30 + (combo - 1) * 10;
+        score += gain;
+        floaters.push({ x: W / 2, y: SLOT_Y - 24, text: '消除 +' + gain, life: 1.1 });
+        A.SFX.combo(combo);
+        A.vibrate(30);
+      } else {
+        combo = 0;
+      }
+      refreshLocked();
+      updateHud();
+
+      if (slots.length >= SLOT_N) { gameOver(false); return; }
+      if (tiles.every(function (t) { return t.removed; }) && slots.length === 0) { gameOver(true); }
+    }
+
+    function useHint() {
+      if (!running || over || hints <= 0) return;
+      hints--;
+      // 优先提示槽位里已有 2 个的同类
+      var cnt = {};
+      slots.forEach(function (k) { cnt[k] = (cnt[k] || 0) + 1; });
+      var want = -1;
+      for (var key in cnt) { if (cnt[key] === 2) { want = parseInt(key, 10); break; } }
+      var cand = tiles.filter(function (t) { return !t.removed && !t.locked && (want < 0 || t.kind === want); });
+      if (!cand.length) cand = tiles.filter(function (t) { return !t.removed && !t.locked; });
+      if (cand.length) {
+        hintId = cand[A.randInt(0, cand.length - 1)].id;
+        hintT = 3;
+        A.SFX.tap();
+      }
+      updateHud();
+    }
+
+    function gameOver(win) {
+      over = true; running = false;
+      var isNew = score > best;
+      if (isNew) { best = score; A.Best.set('match3', best); }
+      updateHud();
+      $('finalScore').textContent = score;
+      $('newBest').style.display = isNew ? 'inline-block' : 'none';
+      $('endEmoji').textContent = win ? '🎉' : '😵';
+      $('endTitle').textContent = win ? '全部消除！' : '槽位满啦';
+      $('endOv').classList.add('show');
+      if (win) A.SFX.win(); else A.SFX.fail();
+    }
+
+    function draw() {
+      var g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, '#D9F0E4'); g.addColorStop(1, '#C4E8F5');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      // 格子：按层级从低到高绘制，保证上层正确盖住下层（层次清晰的关键）
+      var ordered = tiles.filter(function (t) { return !t.removed; });
+      ordered.sort(function (a, b) { return a.layer - b.layer; });
+      ordered.forEach(function (t) {
+        drawTile(t.x, t.y, t.kind, t.layer, t.locked, t.id === hintId && hintT > 0);
+      });
+      // 槽位托盘
+      ctx.fillStyle = 'rgba(255,255,255,.7)';
+      roundRect(SLOT_X - 8, SLOT_Y - 8, SLOT_W + 16, CELL + 16, 16); ctx.fill();
+      for (var i = 0; i < SLOT_N; i++) {
+        var x = SLOT_X + i * (CELL + SLOT_GAP);
+        ctx.fillStyle = 'rgba(120,150,140,.16)';
+        roundRect(x, SLOT_Y, CELL, CELL, 10); ctx.fill();
+        if (i < slots.length) {
+          drawTile(x, SLOT_Y, slots[i], 2, false, false);
+        }
+      }
+      // 浮动文字
+      for (var f = floaters.length - 1; f >= 0; f--) {
+        var fl = floaters[f];
+        fl.life -= 0.02; fl.y -= 0.4;
+        ctx.globalAlpha = A.clamp(fl.life, 0, 1);
+        ctx.fillStyle = '#E0457B'; ctx.font = 'bold 20px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(fl.text, fl.x, fl.y); ctx.globalAlpha = 1;
+        if (fl.life <= 0) floaters.splice(f, 1);
+      }
+    }
+
+    // 层级配色：越上层越亮、投影越重，实心不透明，层次一眼可辨
+    var LAYER_STYLE = [
+      { top: '#D9CBB0', bottom: '#B9A988', side: '#8F7F60', edge: '#8B7A58', ink: 'rgba(60,50,32,.55)' }, // 底层：暗、灰
+      { top: '#F2E4C4', bottom: '#DCC79E', side: '#B69A6C', edge: '#B0925E', ink: 'rgba(60,50,32,.25)' }, // 中层：中亮
+      { top: '#FFFDF6', bottom: '#F5E7C6', side: '#D9BE8B', edge: '#C9A568', ink: 'rgba(60,50,32,0)' }  // 顶层：最亮
+    ];
+    function drawTile(x, y, kind, layer, locked, hinted) {
+      ctx.save();
+      var st = LAYER_STYLE[layer] || LAYER_STYLE[0];
+      var depth = 7; // 立体厚度
+      // 投影：层级越高阴影越明显
+      ctx.shadowColor = 'rgba(28,52,44,' + (0.18 + layer * 0.12) + ')';
+      ctx.shadowBlur = 6 + layer * 4;
+      ctx.shadowOffsetY = 4 + layer * 2;
+      // 侧面厚度（实心深色）
+      ctx.fillStyle = st.side;
+      roundRect(x + 2, y + depth, CELL, CELL, 9); ctx.fill();
+      ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+      // 顶面（实心渐变，不使用透明）
+      var g = ctx.createLinearGradient(x, y, x + CELL, y + CELL);
+      g.addColorStop(0, st.top); g.addColorStop(1, st.bottom);
+      ctx.fillStyle = g;
+      roundRect(x, y, CELL, CELL, 9); ctx.fill();
+      // 边框
+      ctx.strokeStyle = st.edge; ctx.lineWidth = 2;
+      roundRect(x, y, CELL, CELL, 9); ctx.stroke();
+      // 顶面高光条，强化立体感
+      ctx.fillStyle = 'rgba(255,255,255,.45)';
+      roundRect(x + 5, y + 4, CELL - 10, 6, 3); ctx.fill();
+      // 图案（实心，不透明；被压的底层用深色压暗表示）
+      ctx.font = '30px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(EMOJI[kind], x + CELL / 2, y + CELL / 2 + 2);
+      // 被压住的块覆盖一层实色蒙版（非透明），进一步区分"不可点"
+      if (locked) {
+        ctx.fillStyle = 'rgba(70,66,56,.28)';
+        roundRect(x, y, CELL, CELL, 9); ctx.fill();
+      }
+      ctx.textBaseline = 'alphabetic';
+      if (hinted) {
+        ctx.strokeStyle = '#FF5B8A'; ctx.lineWidth = 3;
+        ctx.shadowColor = '#FF5B8A'; ctx.shadowBlur = 12;
+        roundRect(x - 1, y - 1, CELL + 2, CELL + 2, 10); ctx.stroke();
+        ctx.shadowBlur = 0;
+      }
+      ctx.restore();
+    }
+
+    function roundRect(x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    }
+
+    function loop(ts) {
+      var dt = Math.min((ts - lastTs) / 1000 || 0, 0.05);
+      lastTs = ts;
+      if (hintT > 0) { hintT -= dt; if (hintT <= 0) hintId = -1; }
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    box.addEventListener('pointerdown', function (e) {
+      e.preventDefault();
+      var rect = cv.getBoundingClientRect();
+      var mx = (e.clientX - rect.left) / rect.width * W;
+      var my = (e.clientY - rect.top) / rect.height * H;
+      // 从最上层开始找可点的块
+      var best2 = null;
+      tiles.forEach(function (t) {
+        if (t.removed || t.locked) return;
+        if (mx >= t.x && mx <= t.x + CELL && my >= t.y && my <= t.y + CELL) {
+          if (!best2 || t.layer > best2.layer) best2 = t;
+        }
+      });
+      if (best2) pick(best2);
+    });
+
+    $('startBtn').addEventListener('click', start);
+    $('againBtn').addEventListener('click', reset);
+    $('resetBtn').addEventListener('click', reset);
+    $('hintBtn').addEventListener('click', useHint);
+    $('muteBtn').addEventListener('click', function () {
+      var m = !A.isMuted(); A.setMuted(m);
+      $('muteBtn').textContent = m ? '🔇 音效关' : '🔊 音效开';
+    });
+
+    reset();
+    requestAnimationFrame(function (t) { lastTs = t; loop(t); });
+  })();
+  </script>
+</body>
+</html>

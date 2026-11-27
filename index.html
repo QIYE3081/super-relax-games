@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>超级解压小游戏</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- 顶部横幅广告位 -->
+  <div class="ad-slot-wrap" data-ad-slot="banner-top"></div>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="brand">
+        <div class="brand-icon">✨</div>
+        <div class="brand-text">
+          <h1>超级解压小游戏</h1>
+          <p>轻轻一点，烦恼全消 · 随开随玩，免费畅玩</p>
+        </div>
+      </div>
+      <div class="header-badge">🎮 无需下载 · 即点即玩</div>
+    </div>
+  </header>
+
+  <main class="main-content">
+    <section class="intro">
+      <span class="eyebrow">RELAX & PLAY</span>
+      <h2>忙完了？<em>挑一个</em>，放松一下吧</h2>
+      <p>18 款精心挑选的小游戏，点开就能玩，不下载、不注册、免费畅玩。</p>
+    </section>
+
+    <div class="stats-bar">
+      <div class="stat-item"><div class="num" id="statGames">18</div><div class="lab">款游戏</div></div>
+      <div class="stat-sep"></div>
+      <div class="stat-item"><div class="num">0</div><div class="lab">元费用</div></div>
+      <div class="stat-sep"></div>
+      <div class="stat-item"><div class="num">∞</div><div class="lab">快乐</div></div>
+    </div>
+
+    <div class="filter-bar" id="filterBar">
+      <button class="filter-btn active" data-cat="all">全部 <span class="cnt">18</span></button>
+      <button class="filter-btn" data-cat="wash">洗护解压 <span class="cnt">3</span></button>
+      <button class="filter-btn" data-cat="hit">人气爆款 <span class="cnt">5</span></button>
+      <button class="filter-btn" data-cat="new">创意新游 <span class="cnt">10</span></button>
+    </div>
+
+    <div class="games-grid" id="gamesGrid">
+      <!-- 由 games-registry.js 动态生成 -->
+    </div>
+
+    <!-- 信息流广告位 -->
+    <div class="ad-slot-wrap" data-ad-slot="card-inline"></div>
+
+    <section class="more-hint">
+      <span>🎁</span>
+      <p>更多好玩的小游戏正在路上，记得常来看看哦！</p>
+    </section>
+  </main>
+
+  <!-- 底部横幅广告位 -->
+  <div class="ad-slot-wrap" data-ad-slot="banner-bottom"></div>
+
+  <footer class="site-footer">
+    <p>超级解压小游戏 · 开心每一天</p>
+  </footer>
+
+  <script src="js/games-registry.js"></script>
+  <script src="js/ads.js"></script>
+  <script>
+    (function () {
+      var grid = document.getElementById('gamesGrid');
+      var games = window.GAME_REGISTRY || [];
+      var WASH = ['wash-pig', 'wash-car', 'wash-carpet'];
+      var HIT = ['jump', 'suika', 'match3', 'snake', 'breakout'];
+      function catOf(id) {
+        if (WASH.indexOf(id) >= 0) return 'wash';
+        if (HIT.indexOf(id) >= 0) return 'hit';
+        return 'new';
+      }
+      function badgeOf(g, cat) {
+        if (cat === 'new') return '<span class="card-badge">NEW</span>';
+        if (cat === 'hit') return '<span class="card-badge hot">HOT</span>';
+        return '<span class="card-badge classic">经典</span>';
+      }
+      function render(cat) {
+        grid.innerHTML = '';
+        var list = games.filter(function (g) { return cat === 'all' || catOf(g.id) === cat; });
+        list.forEach(function (g, i) {
+          var cat = catOf(g.id);
+          var card = document.createElement('a');
+          card.className = 'game-card';
+          card.href = g.path;
+          card.style.setProperty('--card-color', g.color || '#7FC8F8');
+          card.style.animationDelay = (i * 0.035) + 's';
+          var tags = (g.tags || []).map(function (t) {
+            return '<span class="tag">' + t + '</span>';
+          }).join('');
+          var thumb = g.thumb
+            ? '<img class="card-thumb" src="' + g.thumb + '" alt="' + g.title + '">'
+            : '<div class="card-icon">' + (g.icon || '🎮') + '</div>';
+          card.innerHTML =
+            '<div class="card-media">' +
+              '<span class="card-num">NO.' + String(g.order || (i + 1)).padStart(2, '0') + '</span>' +
+              badgeOf(g, cat) + thumb +
+              '<span class="card-play">▶ 开始玩</span>' +
+            '</div>' +
+            '<div class="card-body">' +
+              '<h3>' + g.title + '</h3>' +
+              '<p>' + g.desc + '</p>' +
+              '<div class="card-tags">' + tags + '</div>' +
+            '</div>';
+          grid.appendChild(card);
+        });
+      }
+      // 分类筛选
+      document.getElementById('filterBar').addEventListener('click', function (e) {
+        var btn = e.target.closest('.filter-btn');
+        if (!btn) return;
+        document.querySelectorAll('.filter-btn').forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        render(btn.getAttribute('data-cat'));
+      });
+      document.getElementById('statGames').textContent = games.length;
+      render('all');
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>记忆翻翻乐 - 超级解压小游戏</title>
+  <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body class="game-page">
+  <div data-ad-slot="banner-top" class="ad-slot-wrap"></div>
+  <div class="game-topbar">
+    <a class="back-btn" href="../../index.html">← 返回游戏大厅</a>
+    <div class="game-title">🎴 记忆翻翻乐</div>
+  </div>
+
+  <div class="arcade-wrap">
+    <div class="arcade-hud">
+      <div class="arcade-stat"><span class="lbl">得分</span><span class="val" id="score">0</span></div>
+      <div class="arcade-stat combo"><span class="lbl">配对</span><span class="val" id="pairs">0/8</span></div>
+      <div class="arcade-stat hi"><span class="lbl">最高</span><span class="val" id="best">0</span></div>
+    </div>
+
+    <div class="arcade-canvas-box" id="box">
+      <canvas id="cv"></canvas>
+      <div class="arcade-overlay show" id="startOv">
+        <div class="arcade-panel">
+          <div class="p-emoji">🃏</div>
+          <h2>记忆翻翻乐</h2>
+          <p class="p-sub">翻开两张相同的卡片配对得分！⚠️炸弹卡片别翻到，会扣分。连续配对成功有连击加成。60秒内配对全部8组即通关，考验记忆力！</p>
+          <button class="arcade-btn primary big" id="startBtn">开始游戏</button>
+        </div>
+      </div>
+      <div class="arcade-overlay" id="endOv">
+        <div class="arcade-panel">
+          <div class="p-emoji" id="endEmoji">🧠</div>
+          <h2 id="endTitle">时间到</h2>
+          <div class="p-score">本次得分 <b id="finalScore">0</b></div>
+          <div id="newBest" class="p-new" style="display:none">🎉 新纪录！</div>
+          <button class="arcade-btn primary big" id="againBtn">再来一局</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="arcade-controls">
+      <button class="arcade-btn" id="muteBtn">🔊 音效开</button>
+      <button class="arcade-btn" id="resetBtn">↺ 重新开始</button>
+    </div>
+    <p class="arcade-tip">翻两张卡片配对，配对成功得分+连击，翻到炸弹扣分。60秒内配完8组通关，记住卡片位置！</p>
+  </div>
+
+  <div data-ad-slot="banner-bottom" class="ad-slot-wrap"></div>
+
+  <script src="../../js/ads.js"></script>
+  <script src="../../js/arcade-kit.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var A = window.Arcade;
+    var COLS = 4, ROWS = 4, CW = 80, CH = 76, GAP = 8, PAD = 14;
+    var W = PAD * 2 + COLS * CW + (COLS - 1) * GAP;
+    var H = PAD * 2 + ROWS * CH + (ROWS - 1) * GAP + 50;
+    var cv = document.getElementById('cv');
+    var ctx = A.fitCanvas(cv, W, H);
+    var box = document.getElementById('box');
+    var $ = function (id) { return document.getElementById(id); };
+
+    var ICONS = ['🍎','🍊','🍋','🍇','🍓','🥝','🍑','🍍'];
+    var cards, scores, pairs, combo, best = A.Best.get('memory');
+    var running, over, lastTs, timeLeft, first, second, lockT, particles, floaters, flippedCount;
+
+    function reset() {
+      // 8 对图标 + 8 张？共16张 = 8对。炸弹替换其中一对？改为：8对图标中随机1对换成炸弹(2张)
+      var vals = [];
+      var bombPair = A.randInt(0, 7);
+      for (var i = 0; i < 8; i++) {
+        if (i === bombPair) { vals.push({ v: 'bomb', bomb: true }, { v: 'bomb', bomb: true }); }
+        else { vals.push({ v: i, bomb: false }, { v: i, bomb: false }); }
+      }
+      // 洗牌
+      for (var s = vals.length - 1; s > 0; s--) { var t = A.randInt(0, s); var tmp = vals[s]; vals[s] = vals[t]; vals[t] = tmp; }
+      cards = vals.map(function (v, idx) {
+        return { v: v.v, bomb: v.bomb, idx: idx, face: false, matched: false, flip: 0, pos: cardPos(idx) };
+      });
+      scores = 0; pairs = 0; combo = 0; running = false; over = false;
+      timeLeft = 60; first = null; second = null; lockT = 0;
+      particles = new A.Particles(); floaters = new A.Floaters(); flippedCount = 0;
+      updateHud();
+      $('endOv').classList.remove('show');
+      $('startOv').classList.add('show');
+    }
+    function start() { $('startOv').classList.remove('show'); running = true; lastTs = performance.now(); }
+    function updateHud() { $('score').textContent = scores; $('pairs').textContent = pairs + '/8'; $('best').textContent = best; }
+    function cardPos(idx) {
+      var c = idx % COLS, r = Math.floor(idx / COLS);
+      return { x: PAD + c * (CW + GAP), y: PAD + r * (CH + GAP) };
+    }
+
+    function flip(card) {
+      if (!running || over || card.face || card.matched || lockT > 0) return;
+      card.face = true;
+      A.SFX.click();
+      if (!first) { first = card; return; }
+      second = card;
+      lockT = 0.8;
+      if (first.bomb && second.bomb) {
+        // 翻到一对炸弹：重罚
+        scores = Math.max(0, scores - 40); combo = 0;
+        floaters.add(W / 2, H / 2, '💣 -40', '#FF5B7C', 26);
+        A.SFX.fail(); A.vibrate(50);
+        setTimeout(function () { first.face = false; second.face = false; first = second = null; }, 800);
+      } else if (!first.bomb && !second.bomb && first.v === second.v) {
+        // 配对成功
+        first.matched = true; second.matched = true;
+        combo++;
+        var gain = 20 + combo * 5;
+        scores += gain; pairs++;
+        var p1 = first.pos, p2 = second.pos;
+        particles.burst(p1.x + CW / 2, p1.y + CH / 2, { count: 12, colors: ['#FFD84A', '#fff'], speedMax: 180 });
+        particles.burst(p2.x + CW / 2, p2.y + CH / 2, { count: 12, colors: ['#FFD84A', '#fff'], speedMax: 180 });
+        floaters.add(W / 2, H / 2, '配对 +' + gain + (combo > 1 ? ' x' + combo : ''), '#FFE066', 20);
+        A.SFX.combo(combo); A.vibrate(20);
+        first = second = null;
+        if (pairs >= 7) setTimeout(function () { gameOver(true); }, 600);
+      } else {
+        // 不匹配
+        combo = 0;
+        setTimeout(function () { first.face = false; second.face = false; first = second = null; }, 800);
+      }
+      updateHud();
+    }
+    function gameOver(win) {
+      over = true; running = false;
+      var isNew = scores > best;
+      if (isNew) { best = scores; A.Best.set('memory', best); }
+      updateHud();
+      $('finalScore').textContent = scores;
+      $('endTitle').textContent = win ? '全部配对！' : '时间到';
+      $('endEmoji').textContent = win ? '🧠' : '⏰';
+      $('newBest').style.display = isNew ? 'inline-block' : 'none';
+      $('endOv').classList.add('show');
+      if (win) A.SFX.win(); else A.SFX.fail();
+    }
+
+    function loop(ts) {
+      var dt = Math.min((ts - lastTs) / 1000 || 0, 0.033);
+      lastTs = ts;
+      if (running && !over) {
+        timeLeft -= dt;
+        if (timeLeft <= 0) { timeLeft = 0; gameOver(false); }
+        if (lockT > 0) lockT -= dt;
+      }
+      cards.forEach(function (c) {
+        var target = (c.face || c.matched) ? 1 : 0;
+        c.flip += (target - c.flip) * Math.min(1, dt * 12);
+      });
+      particles.update(dt); floaters.update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+    function draw() {
+      var g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, '#3A2E6E'); g.addColorStop(1, '#5A3E8E');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      // 时间条
+      ctx.fillStyle = 'rgba(0,0,0,.3)'; A.roundRectPath(ctx, PAD, H - 36, W - PAD * 2, 14, 7); ctx.fill();
+      ctx.fillStyle = timeLeft < 15 ? '#FF5B7C' : '#4DFF88';
+      A.roundRectPath(ctx, PAD, H - 36, (W - PAD * 2) * (timeLeft / 60), 14, 7); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('⏱ ' + Math.ceil(timeLeft) + 's', W / 2, H - 29);
+      ctx.textBaseline = 'alphabetic';
+      // 卡片
+      cards.forEach(function (c) {
+        var scale = Math.abs(c.flip - 0.5) * 2; // 0正面 1侧面
+        var w = CW * (0.15 + 0.85 * scale);
+        var x = c.pos.x + (CW - w) / 2, y = c.pos.y;
+        ctx.save();
+        if (c.flip > 0.5) {
+          // 显示正面
+          if (c.bomb) {
+            ctx.fillStyle = '#FF5B7C'; ctx.shadowColor = '#FF5B7C';
+          } else {
+            ctx.fillStyle = c.matched ? '#4DFF88' : '#FFE066'; ctx.shadowColor = ctx.fillStyle;
+          }
+          ctx.shadowBlur = 10;
+          A.roundRectPath(ctx, x, y, w, CH, 10); ctx.fill(); ctx.shadowBlur = 0;
+          ctx.font = '38px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText(c.bomb ? '💣' : ICONS[c.v], x + w / 2, y + CH / 2);
+          if (c.matched) { ctx.globalAlpha = 0.35; ctx.fillStyle = '#fff'; A.roundRectPath(ctx, x, y, w, CH, 10); ctx.fill(); }
+        } else {
+          // 卡背
+          var bg = ctx.createLinearGradient(x, y, x + w, y + CH);
+          bg.addColorStop(0, '#6A8DFB'); bg.addColorStop(1, '#8B6BF0');
+          ctx.fillStyle = bg;
+          A.roundRectPath(ctx, x, y, w, CH, 10); ctx.fill();
+          ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.lineWidth = 2;
+          A.roundRectPath(ctx, x + 4, y + 4, w - 8, CH - 8, 8); ctx.stroke();
+          ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.font = '28px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          if (w > 30) ctx.fillText('✨', x + w / 2, y + CH / 2);
+        }
+        ctx.restore();
+      });
+      particles.draw(ctx); floaters.draw(ctx);
+    }
+
+    box.addEventListener('pointerdown', function (e) {
+      e.preventDefault(); if (!running || over) return;
+      var rect = cv.getBoundingClientRect();
+      var px = (e.clientX - rect.left) / rect.width * W;
+      var py = (e.clientY - rect.top) / rect.height * H;
+      for (var i = 0; i < cards.length; i++) {
+        var p = cards[i].pos;
+        if (px >= p.x && px <= p.x + CW && py >= p.y && py <= p.y + CH) { flip(cards[i]); break; }
+      }
+    });
+    $('startBtn').addEventListener('click', start);
+    $('againBtn').addEventListener('click', reset);
+    $('resetBtn').addEventListener('click', reset);
+    $('muteBtn').addEventListener('click', function () {
+      var m = !A.isMuted(); A.setMuted(m); $('muteBtn').textContent = m ? '🔇 音效关' : '🔊 音效开';
+    });
+
+    reset();
+    requestAnimationFrame(function (t) { lastTs = t; loop(t); });
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>霓虹方块 - 超级解压小游戏</title>
+  <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body class="game-page">
+  <div data-ad-slot="banner-top" class="ad-slot-wrap"></div>
+  <div class="game-topbar">
+    <a class="back-btn" href="../../index.html">← 返回游戏大厅</a>
+    <div class="game-title">🌈 霓虹方块</div>
+  </div>
+
+  <div class="arcade-wrap">
+    <div class="arcade-hud">
+      <div class="arcade-stat"><span class="lbl">得分</span><span class="val" id="score">0</span></div>
+      <div class="arcade-stat combo"><span class="lbl">消行</span><span class="val" id="lines">0</span></div>
+      <div class="arcade-stat hi"><span class="lbl">最高</span><span class="val" id="best">0</span></div>
+    </div>
+
+    <div class="arcade-canvas-box" id="box">
+      <canvas id="cv"></canvas>
+      <div class="arcade-overlay show" id="startOv">
+        <div class="arcade-panel">
+          <div class="p-emoji">🌈</div>
+          <h2>霓虹方块</h2>
+          <p class="p-sub">经典俄罗斯方块升级版！✨彩虹方块是万能块，💣炸弹方块能清一片。滑动左右移动，点屏幕旋转，长按加速下落。霓虹画风，爽快消行！</p>
+          <button class="arcade-btn primary big" id="startBtn">开始游戏</button>
+        </div>
+      </div>
+      <div class="arcade-overlay" id="endOv">
+        <div class="arcade-panel">
+          <div class="p-emoji">🌈</div>
+          <h2>游戏结束</h2>
+          <div class="p-score">本次得分 <b id="finalScore">0</b></div>
+          <div id="newBest" class="p-new" style="display:none">🎉 新纪录！</div>
+          <button class="arcade-btn primary big" id="againBtn">再来一局</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="arcade-controls">
+      <button class="arcade-btn" id="rotateBtn">↻ 旋转</button>
+      <button class="arcade-btn" id="muteBtn">🔊 音效开</button>
+      <button class="arcade-btn" id="resetBtn">↺ 重新开始</button>
+    </div>
+    <p class="arcade-tip">左右滑动或方向键移动，点击画面/↑键/按钮旋转，↓键加速下落。✨彩虹块万能匹配，💣炸弹块清一片。</p>
+  </div>
+
+  <div data-ad-slot="banner-bottom" class="ad-slot-wrap"></div>
+
+  <script src="../../js/ads.js"></script>
+  <script src="../../js/arcade-kit.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var A = window.Arcade;
+    var COLS = 10, ROWS = 18, CELL = 24, PAD = 10;
+    var W = PAD * 2 + COLS * CELL + 96, H = PAD * 2 + ROWS * CELL;
+    var cv = document.getElementById('cv');
+    var ctx = A.fitCanvas(cv, W, H);
+    var box = document.getElementById('box');
+    var $ = function (id) { return document.getElementById(id); };
+    var BX = PAD, BY = PAD;
+    var COLORS = ['#00E5FF', '#FFE066', '#B77BFF', '#4DFF88', '#FF5B7C', '#FF9E4A', '#4DA8FF'];
+    // 形状定义
+    var SHAPES = [
+      [[0,0],[1,0],[0,1],[1,1]],       // O
+      [[0,0],[1,0],[2,0],[3,0]],       // I
+      [[0,0],[1,0],[2,0],[1,1]],       // T
+      [[0,0],[1,0],[1,1],[2,1]],       // S
+      [[1,0],[2,0],[0,1],[1,1]],       // Z
+      [[0,0],[0,1],[1,1],[1,2]],       // J
+      [[1,0],[1,1],[0,2],[1,2]]        // L
+    ];
+
+    var board, cur, next, scores, lines, best = A.Best.get('neon');
+    var running, over, lastTs, dropT, dropInterval, particles, floaters, flashRows, softDrop;
+
+    function newPiece() {
+      var si = A.randInt(0, SHAPES.length - 1);
+      var cells = SHAPES[si].map(function (p) { return p.slice(); });
+      var kind = 'normal';
+      var r = Math.random();
+      if (r < 0.06) kind = 'bomb';
+      else if (r < 0.14) kind = 'rainbow';
+      return { cells: cells, x: 3, y: 0, color: kind === 'rainbow' ? '#FFFFFF' : (kind === 'bomb' ? '#FF3B3B' : COLORS[si]), kind: kind };
+    }
+    function reset() {
+      board = []; for (var r = 0; r < ROWS; r++) { board[r] = []; for (var c = 0; c < COLS; c++) board[r][c] = null; }
+      cur = newPiece(); next = newPiece();
+      scores = 0; lines = 0; running = false; over = false;
+      dropT = 0; dropInterval = 0.55; softDrop = false;
+      particles = new A.Particles(); floaters = new A.Floaters(); flashRows = [];
+      updateHud();
+      $('endOv').classList.remove('show');
+      $('startOv').classList.add('show');
+    }
+    function start() { $('startOv').classList.remove('show'); running = true; lastTs = performance.now(); }
+    function updateHud() { $('score').textContent = scores; $('lines').textContent = lines; $('best').textContent = best; }
+
+    function valid(piece, dx, dy) {
+      for (var i = 0; i < piece.cells.length; i++) {
+        var x = piece.x + piece.cells[i][0] + dx, y = piece.y + piece.cells[i][1] + dy;
+        if (x < 0 || x >= COLS || y >= ROWS) return false;
+        if (y >= 0 && board[y][x]) return false;
+      }
+      return true;
+    }
+    function rotate() {
+      if (!running || over) return;
+      var p = { cells: cur.cells.map(function (c) { return [-c[1], c[0]]; }), x: cur.x, y: cur.y, kind: cur.kind, color: cur.color };
+      // 归一化
+      var minX = Math.min.apply(null, p.cells.map(function (c) { return c[0]; }));
+      var minY = Math.min.apply(null, p.cells.map(function (c) { return c[1]; }));
+      p.cells = p.cells.map(function (c) { return [c[0] - minX, c[1] - minY]; });
+      if (valid(p, 0, 0)) { cur = p; A.SFX.tap(); }
+    }
+    function move(dx) { if (valid(cur, dx, 0)) { cur.x += dx; A.SFX.click(); } }
+    function lock() {
+      // 彩虹块：变成下方相邻块的颜色，或随机
+      for (var i = 0; i < cur.cells.length; i++) {
+        var x = cur.x + cur.cells[i][0], y = cur.y + cur.cells[i][1];
+        if (y < 0) { gameOver(); return; }
+        var color = cur.color;
+        if (cur.kind === 'rainbow') color = COLORS[A.randInt(0, COLORS.length - 1)];
+        board[y][x] = { color: color, kind: cur.kind };
+      }
+      if (cur.kind === 'bomb') explode(cur.x + cur.cells[0][0], cur.y + cur.cells[0][1]);
+      clearLines();
+      cur = next; next = newPiece();
+      if (!valid(cur, 0, 0)) gameOver();
+    }
+    function explode(cx, cy) {
+      for (var r = cy - 1; r <= cy + 1; r++) for (var c = cx - 1; c <= cx + 1; c++) {
+        if (r >= 0 && r < ROWS && c >= 0 && c < COLS && board[r][c]) {
+          var pos = cellPos(c, r);
+          particles.burst(pos.x, pos.y, { count: 8, colors: ['#FF3B3B', '#FFB23F'], speedMax: 220 });
+          board[r][c] = null;
+        }
+      }
+      scores += 30; A.SFX.combo(3); A.vibrate(30); updateHud();
+      floaters.add(cx * CELL + BX, cy * CELL + BY, '💣 爆破!', '#FF5B7C', 18);
+    }
+    function clearLines() {
+      var full = [];
+      for (var r = 0; r < ROWS; r++) {
+        var all = true;
+        for (var c = 0; c < COLS; c++) if (!board[r][c]) { all = false; break; }
+        if (all) full.push(r);
+      }
+      if (!full.length) return;
+      var gain = [0, 100, 300, 500, 800][Math.min(full.length, 4)];
+      scores += gain; lines += full.length;
+      full.forEach(function (r) {
+        var y = BY + r * CELL + CELL / 2;
+        particles.burst(BX + COLS * CELL / 2, y, { count: 24, colors: COLORS, speedMax: 320 });
+        floaters.add(BX + COLS * CELL / 2, y, '+' + gain + '!', '#FFE066', 22);
+      });
+      flashRows = full.slice();
+      // 移除满行
+      full.sort(function (a, b) { return b - a; });
+      full.forEach(function (r) { board.splice(r, 1); board.unshift(new Array(COLS).fill(null)); });
+      A.SFX.win(); A.vibrate(25); updateHud();
+    }
+    function gameOver() {
+      over = true; running = false;
+      var isNew = scores > best;
+      if (isNew) { best = scores; A.Best.set('neon', best); }
+      updateHud();
+      $('finalScore').textContent = scores;
+      $('newBest').style.display = isNew ? 'inline-block' : 'none';
+      $('endOv').classList.add('show');
+      A.SFX.fail();
+    }
+    function cellPos(c, r) { return { x: BX + c * CELL + CELL / 2, y: BY + r * CELL + CELL / 2 }; }
+
+    function loop(ts) {
+      var dt = Math.min((ts - lastTs) / 1000 || 0, 0.033);
+      lastTs = ts;
+      if (running && !over) {
+        dropT += dt;
+        var iv = softDrop ? 0.05 : dropInterval;
+        if (dropT >= iv) {
+          dropT = 0;
+          if (valid(cur, 0, 1)) cur.y++;
+          else lock();
+        }
+      }
+      for (var f = flashRows.length - 1; f >= 0; f--) { flashRows[f] -= dt; if (flashRows[f] <= 0) flashRows.splice(f, 1); }
+      particles.update(dt); floaters.update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+    function draw() {
+      ctx.fillStyle = '#0E1030'; ctx.fillRect(0, 0, W, H);
+      // 网格
+      ctx.strokeStyle = 'rgba(120,140,255,.08)'; ctx.lineWidth = 1;
+      for (var r = 0; r <= ROWS; r++) { ctx.beginPath(); ctx.moveTo(BX, BY + r * CELL); ctx.lineTo(BX + COLS * CELL, BY + r * CELL); ctx.stroke(); }
+      for (var c = 0; c <= COLS; c++) { ctx.beginPath(); ctx.moveTo(BX + c * CELL, BY); ctx.lineTo(BX + c * CELL, BY + ROWS * CELL); ctx.stroke(); }
+      // 棋盘
+      for (var rr = 0; rr < ROWS; rr++) for (var cc = 0; cc < COLS; cc++) {
+        if (board[rr][cc]) drawCell(cc, rr, board[rr][cc].color, board[rr][cc].kind);
+      }
+      // 当前块
+      if (cur && running && !over) {
+        for (var i = 0; i < cur.cells.length; i++) {
+          var x = cur.x + cur.cells[i][0], y = cur.y + cur.cells[i][1];
+          if (y >= 0) drawCell(x, y, cur.color, cur.kind);
+        }
+      }
+      // 霓虹边框
+      ctx.strokeStyle = '#6A8DFB'; ctx.lineWidth = 3; ctx.shadowColor = '#6A8DFB'; ctx.shadowBlur = 12;
+      ctx.strokeRect(BX - 1, BY - 1, COLS * CELL + 2, ROWS * CELL + 2); ctx.shadowBlur = 0;
+      // 侧栏：下一个
+      var sx = BX + COLS * CELL + 20;
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText('下一个', sx, BY + 20);
+      if (next) {
+        for (var n = 0; n < next.cells.length; n++) {
+          var nx = sx + 10 + next.cells[n][0] * CELL * 0.7;
+          var ny = BY + 45 + next.cells[n][1] * CELL * 0.7;
+          ctx.save(); ctx.shadowColor = next.color; ctx.shadowBlur = 8;
+          ctx.fillStyle = next.color; A.roundRectPath(ctx, nx, ny, CELL * 0.62, CELL * 0.62, 4); ctx.fill(); ctx.restore();
+        }
+      }
+      ctx.fillStyle = 'rgba(255,255,255,.6)'; ctx.font = '11px sans-serif';
+      ctx.fillText('✨彩虹万能', sx, BY + 150);
+      ctx.fillText('💣炸弹清片', sx, BY + 172);
+      ctx.textBaseline = 'alphabetic';
+      particles.draw(ctx); floaters.draw(ctx);
+    }
+    function drawCell(c, r, color, kind) {
+      var x = BX + c * CELL, y = BY + r * CELL;
+      ctx.save();
+      ctx.shadowColor = color; ctx.shadowBlur = 10;
+      var g = ctx.createLinearGradient(x, y, x + CELL, y + CELL);
+      g.addColorStop(0, A.shade(color, 0.35)); g.addColorStop(1, color);
+      ctx.fillStyle = g;
+      A.roundRectPath(ctx, x + 1, y + 1, CELL - 2, CELL - 2, 4); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.fillRect(x + 3, y + 3, CELL - 6, 3);
+      if (kind === 'bomb' || kind === 'rainbow') {
+        ctx.font = '15px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(kind === 'bomb' ? '💣' : '✨', x + CELL / 2, y + CELL / 2);
+      }
+      ctx.restore();
+    }
+
+    // 滑动/点击控制
+    var touchStart = null;
+    box.addEventListener('pointerdown', function (e) {
+      if (!running || over) return;
+      var rect = cv.getBoundingClientRect();
+      touchStart = { x: e.clientX, y: e.clientY, t: performance.now() };
+    });
+    box.addEventListener('pointerup', function (e) {
+      if (!touchStart || !running || over) { touchStart = null; return; }
+      var dx = e.clientX - touchStart.x, dy = e.clientY - touchStart.y;
+      var dt = performance.now() - touchStart.t;
+      touchStart = null;
+      if (Math.abs(dx) > 24) move(dx > 0 ? 1 : -1);
+      else if (Math.abs(dy) > 40 && dy > 0) { softDrop = true; setTimeout(function () { softDrop = false; }, 300); }
+      else rotate();
+    });
+    window.addEventListener('keydown', function (e) {
+      if (!running || over) return;
+      if (e.key === 'ArrowLeft') { e.preventDefault(); move(-1); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); move(1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); rotate(); }
+      else if (e.key === 'ArrowDown') { e.preventDefault(); softDrop = true; }
+      else if (e.key === 'Space') { e.preventDefault(); rotate(); }
+    });
+    window.addEventListener('keyup', function (e) { if (e.key === 'ArrowDown') softDrop = false; });
+    $('rotateBtn').addEventListener('click', rotate);
+    $('startBtn').addEventListener('click', start);
+    $('againBtn').addEventListener('click', reset);
+    $('resetBtn').addEventListener('click', reset);
+    $('muteBtn').addEventListener('click', function () {
+      var m = !A.isMuted(); A.setMuted(m); $('muteBtn').textContent = m ? '🔇 音效关' : '🔊 音效开';
+    });
+
+    reset();
+    requestAnimationFrame(function (t) { lastTs = t; loop(t); });
+  })();
+  </script>
+</body>
+</html>
