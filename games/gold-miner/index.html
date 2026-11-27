@@ -114,10 +114,10 @@
         if (o.gone || o.grabbed) continue;
         if (Math.hypot(ex - o.x, ey - o.y) < o.r + 12) {
           o.grabbed = true; hook.grabbed = o; hook.state = 'retract';
-          A.SFX.click(); return;
+          A.SFX.click(); return true;
         }
       }
-      hook.state = 'retract';
+      return false; // 没抓到由调用方判断是否到达边界再收回
     }
     function collect(o) {
       o.gone = true;
@@ -153,8 +153,9 @@
           hook.len += 360 * dt;
           var ex = ORIGIN.x + Math.sin(hook.angle) * hook.len;
           var ey = ORIGIN.y + Math.cos(hook.angle) * hook.len;
-          if (ey > H - 10 || ex < 10 || ex > W - 10 || Math.hypot(ex - ORIGIN.x, ey - ORIGIN.y) > 600) grabCheck();
-          else grabCheck();
+          // 只在真正抓到、或钩子到达边界/最大长度时才收回，避免第一帧就缩回
+          var caught = grabCheck();
+          if (!caught && (ey > H - 12 || ex < 12 || ex > W - 12 || hook.len > 620)) hook.state = 'retract';
         } else if (hook.state === 'retract') {
           hook.len -= (hook.grabbed ? 240 : 480) * dt;
           if (hook.grabbed) {
@@ -225,18 +226,35 @@
         }
         ctx.restore();
       });
-      //  miners
-      ctx.fillStyle = '#8B5A2B';
-      ctx.beginPath(); ctx.arc(ORIGIN.x, ORIGIN.y, 24, 0, 6.28); ctx.fill();
-      ctx.font = '28px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('👷', ORIGIN.x, ORIGIN.y);
+      // 矿工作业小平台：绳子从平台上的绞盘垂下，不再从脸上发出
+      ctx.fillStyle = '#7A5230';
+      A.roundRectPath(ctx, ORIGIN.x - 72, ORIGIN.y + 14, 96, 8, 4); ctx.fill();
+      // 矿工站在绞盘左侧
+      ctx.font = '36px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('👷', ORIGIN.x - 46, ORIGIN.y - 4);
+      // 绞盘支架
+      ctx.strokeStyle = '#8A6238'; ctx.lineWidth = 7; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(ORIGIN.x, ORIGIN.y + 16); ctx.lineTo(ORIGIN.x, ORIGIN.y); ctx.stroke();
+      // 滑轮（绳子从这里垂下，与物理计算的 ORIGIN 同点）
+      ctx.fillStyle = '#C89A5C';
+      ctx.beginPath(); ctx.arc(ORIGIN.x, ORIGIN.y, 10, 0, 6.28); ctx.fill();
+      ctx.strokeStyle = '#8A6238'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(ORIGIN.x, ORIGIN.y, 10, 0, 6.28); ctx.stroke();
+      ctx.fillStyle = '#6E4A2A';
+      ctx.beginPath(); ctx.arc(ORIGIN.x, ORIGIN.y, 3, 0, 6.28); ctx.fill();
       // 钩爪绳
       var ex = ORIGIN.x + Math.sin(hook.angle) * hook.len;
       var ey = ORIGIN.y + Math.cos(hook.angle) * hook.len;
-      ctx.strokeStyle = '#C9A36A'; ctx.lineWidth = 3;
+      ctx.strokeStyle = '#D9B87C'; ctx.lineWidth = 3;
       ctx.beginPath(); ctx.moveTo(ORIGIN.x, ORIGIN.y); ctx.lineTo(ex, ey); ctx.stroke();
+      // 钩爪
       ctx.fillStyle = '#C0C0C0';
-      ctx.beginPath(); ctx.arc(ex, ey, 8, 0, 6.28); ctx.fill();
+      ctx.beginPath(); ctx.arc(ex, ey, 7, 0, 6.28); ctx.fill();
+      ctx.strokeStyle = '#E8ECEF'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(ex - 6, ey + 3); ctx.lineTo(ex - 2, ey + 11);
+      ctx.moveTo(ex + 6, ey + 3); ctx.lineTo(ex + 2, ey + 11);
+      ctx.stroke();
       ctx.textBaseline = 'alphabetic';
       particles.draw(ctx); floaters.draw(ctx);
     }

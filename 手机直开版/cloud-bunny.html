@@ -5,14 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>云端跳跳兔 - 超级解压小游戏</title>
   <style>
-/* ================= 超级解压小游戏 · v6 深空霓虹视觉 ================= */
+/* ================= 超级解压小游戏 · v7 阳光明媚视觉 ================= */
 :root {
-  --ink: #23324A;
-  --ink-soft: #6B7C93;
+  --ink: #2B3A55;
+  --ink-soft: #7A8AA3;
   --card-bg: #FFFFFF;
-  --radius: 22px;
-  --shadow: 0 12px 34px rgba(60, 80, 140, .14);
-  --shadow-hover: 0 22px 50px rgba(60, 80, 140, .24);
+  --radius: 24px;
+  --shadow: 0 12px 34px rgba(80, 130, 180, .14);
+  --shadow-hover: 0 24px 52px rgba(80, 130, 180, .24);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -20,136 +20,132 @@
 body {
   font-family: "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", sans-serif;
   color: var(--ink);
-  background: #0B1026;
+  background: #EAF6FF;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
 }
 
-/* 动态深空背景（仅主页） */
+/* 明快晴空背景（仅主页）：蓝天 + 暖阳 + 棉花糖云 */
 body:not(.game-page)::before {
   content: ''; position: fixed; inset: 0; z-index: -2;
   background:
-    radial-gradient(1100px 700px at 12% -8%, rgba(123,97,255,.55), transparent 60%),
-    radial-gradient(900px 600px at 92% 8%, rgba(255,107,157,.4), transparent 58%),
-    radial-gradient(900px 700px at 50% 110%, rgba(77,208,225,.28), transparent 60%),
-    linear-gradient(160deg, #0B1026 0%, #1A1640 46%, #2A1240 100%);
+    radial-gradient(600px 400px at 82% 6%, rgba(255,238,160,.85), transparent 62%),
+    radial-gradient(700px 500px at 8% 12%, rgba(255,255,255,.7), transparent 60%),
+    linear-gradient(165deg, #8FD3FF 0%, #B5E4FF 38%, #D9F0FF 70%, #FFF4DC 100%);
 }
 body:not(.game-page)::after {
   content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
   background-image:
-    radial-gradient(2px 2px at 20% 30%, rgba(255,255,255,.8), transparent),
-    radial-gradient(2px 2px at 70% 20%, rgba(255,255,255,.6), transparent),
-    radial-gradient(1.5px 1.5px at 40% 70%, rgba(255,255,255,.7), transparent),
-    radial-gradient(2px 2px at 85% 60%, rgba(255,255,255,.5), transparent),
-    radial-gradient(1.5px 1.5px at 10% 80%, rgba(255,255,255,.6), transparent),
-    radial-gradient(2px 2px at 55% 45%, rgba(255,255,255,.5), transparent);
-  background-size: 420px 420px, 380px 380px, 300px 300px, 460px 460px, 340px 340px, 400px 400px;
-  animation: starDrift 40s linear infinite;
+    radial-gradient(60px 24px at 15% 18%, rgba(255,255,255,.95), transparent 70%),
+    radial-gradient(80px 30px at 78% 30%, rgba(255,255,255,.9), transparent 70%),
+    radial-gradient(50px 20px at 40% 62%, rgba(255,255,255,.8), transparent 70%),
+    radial-gradient(70px 28px at 88% 72%, rgba(255,255,255,.85), transparent 70%),
+    radial-gradient(55px 22px at 8% 84%, rgba(255,255,255,.8), transparent 70%);
+  animation: cloudFloat 30s ease-in-out infinite alternate;
 }
-@keyframes starDrift { from { background-position: 0 0; } to { background-position: 420px 420px; } }
+@keyframes cloudFloat { from { transform: translateX(0); } to { transform: translateX(40px); } }
 
 /* ---------- 顶部 ---------- */
 .site-header {
-  background: rgba(16, 20, 48, .55);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-bottom: 1px solid rgba(255,255,255,.12);
+  background: rgba(255, 255, 255, .82);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border-bottom: 1px solid rgba(255,255,255,.9);
+  box-shadow: 0 4px 20px rgba(90,150,200,.1);
   position: sticky; top: 0; z-index: 10;
 }
-.header-inner { max-width: 1080px; margin: 0 auto; padding: 20px 24px; display: flex; align-items: center; justify-content: space-between; }
+.header-inner { max-width: 1080px; margin: 0 auto; padding: 18px 24px; display: flex; align-items: center; justify-content: space-between; }
 .brand { display: flex; align-items: center; gap: 16px; }
 .brand-icon {
   font-size: 38px; width: 64px; height: 64px;
   display: flex; align-items: center; justify-content: center;
-  background: linear-gradient(135deg, #7B61FF, #FF6B9D);
+  background: linear-gradient(135deg, #FFD86B, #FF9E5E);
   border-radius: 20px;
-  box-shadow: 0 10px 28px rgba(123,97,255,.55), inset 0 2px 6px rgba(255,255,255,.4);
+  box-shadow: 0 8px 22px rgba(255,158,94,.45), inset 0 2px 6px rgba(255,255,255,.5);
   animation: floaty 4s ease-in-out infinite;
 }
-@keyframes floaty { 0%,100% { transform: translateY(0) rotate(-4deg); } 50% { transform: translateY(-7px) rotate(4deg); } }
+@keyframes floaty { 0%,100% { transform: translateY(0) rotate(-5deg); } 50% { transform: translateY(-7px) rotate(5deg); } }
 .brand-text h1 {
   font-size: 29px; font-weight: 900; letter-spacing: 1px;
-  background: linear-gradient(100deg, #fff 10%, #FFD1E6 45%, #B9A8FF 80%);
+  background: linear-gradient(100deg, #3C7BD6 10%, #5AA9E6 50%, #FF9E5E 92%);
   -webkit-background-clip: text; background-clip: text; color: transparent;
-  text-shadow: 0 4px 24px rgba(123,97,255,.35);
 }
-.brand-text p { color: rgba(255,255,255,.7); font-size: 13px; margin-top: 5px; font-weight: 500; letter-spacing: .5px; }
+.brand-text p { color: #7A8AA3; font-size: 13px; margin-top: 5px; font-weight: 600; letter-spacing: .5px; }
 .header-badge {
-  font-size: 12px; font-weight: 700; color: #FFE9F4;
-  background: rgba(255,107,157,.18); border: 1px solid rgba(255,107,157,.45);
+  font-size: 12px; font-weight: 700; color: #E07B3A;
+  background: rgba(255,220,150,.5); border: 1px solid rgba(255,190,110,.6);
   padding: 8px 14px; border-radius: 20px; white-space: nowrap;
-  box-shadow: 0 4px 14px rgba(255,107,157,.2);
 }
 
 /* ---------- 主体 ---------- */
 .main-content { max-width: 1080px; margin: 0 auto; padding: 44px 24px 60px; }
-.intro { text-align: center; margin-bottom: 30px; }
+.intro { text-align: center; margin-bottom: 28px; }
 .intro .eyebrow {
   display: inline-block; font-size: 12px; font-weight: 800; letter-spacing: 3px;
-  color: #7BE0EA; text-transform: uppercase; margin-bottom: 12px;
+  color: #E07B3A; text-transform: uppercase; margin-bottom: 12px;
 }
 .intro h2 {
-  font-size: 34px; color: #fff; font-weight: 900; margin-bottom: 12px; line-height: 1.25;
-  text-shadow: 0 4px 24px rgba(123,97,255,.4);
+  font-size: 34px; color: #2E4A6B; font-weight: 900; margin-bottom: 12px; line-height: 1.25;
+  text-shadow: 0 3px 0 rgba(255,255,255,.9);
 }
-.intro h2 em { font-style: normal; background: linear-gradient(100deg, #FF6B9D, #FFC371); -webkit-background-clip: text; background-clip: text; color: transparent; }
-.intro p { color: rgba(255,255,255,.72); font-size: 15px; font-weight: 500; }
+.intro h2 em { font-style: normal; background: linear-gradient(100deg, #FF8A5B, #FFC23C); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.intro p { color: #6A7E96; font-size: 15px; font-weight: 600; }
 
 /* 统计条 */
-.stats-bar { display: flex; justify-content: center; gap: 34px; margin: 26px 0 30px; }
-.stat-item { text-align: center; }
-.stat-item .num { font-size: 26px; font-weight: 900; color: #fff; line-height: 1; }
-.stat-item .lab { font-size: 12px; color: rgba(255,255,255,.6); margin-top: 6px; font-weight: 600; letter-spacing: 1px; }
-.stat-sep { width: 1px; background: rgba(255,255,255,.15); }
+.stats-bar { display: flex; justify-content: center; gap: 34px; margin: 24px 0 28px; }
+.stat-item { text-align: center; background: rgba(255,255,255,.78); padding: 12px 22px; border-radius: 18px; box-shadow: 0 6px 18px rgba(90,150,200,.12); }
+.stat-item .num { font-size: 26px; font-weight: 900; color: #3C7BD6; line-height: 1; }
+.stat-item .lab { font-size: 12px; color: #8A9BB0; margin-top: 6px; font-weight: 700; letter-spacing: 1px; }
+.stat-sep { display: none; }
 
 /* 分类筛选 */
 .filter-bar { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-bottom: 30px; }
 .filter-btn {
   font-family: inherit; font-size: 14px; font-weight: 700; cursor: pointer;
-  color: rgba(255,255,255,.75); background: rgba(255,255,255,.08);
-  border: 1px solid rgba(255,255,255,.16); padding: 10px 20px; border-radius: 24px;
-  transition: all .2s ease; backdrop-filter: blur(8px);
+  color: #5A7091; background: rgba(255,255,255,.9);
+  border: 1px solid rgba(120,170,220,.3); padding: 10px 20px; border-radius: 24px;
+  transition: all .2s ease; box-shadow: 0 4px 12px rgba(90,150,200,.1);
 }
-.filter-btn:hover { background: rgba(255,255,255,.16); color: #fff; }
+.filter-btn:hover { background: #fff; transform: translateY(-2px); box-shadow: 0 8px 18px rgba(90,150,200,.18); }
 .filter-btn.active {
   color: #fff; border-color: transparent;
-  background: linear-gradient(135deg, #7B61FF, #FF6B9D);
-  box-shadow: 0 8px 22px rgba(123,97,255,.45);
+  background: linear-gradient(135deg, #4FA8F5, #3C7BD6);
+  box-shadow: 0 8px 22px rgba(60,123,214,.4);
 }
-.filter-btn .cnt { font-size: 11px; opacity: .75; margin-left: 5px; }
+.filter-btn .cnt { font-size: 11px; opacity: .8; margin-left: 5px; }
 
 .games-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 22px;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
 }
 .game-card {
   display: block; text-decoration: none; color: inherit;
   position: relative;
-  background: rgba(255,255,255,.96);
-  border-radius: var(--radius);
+  background: #fff;
+  border-radius: 14px;
   overflow: hidden;
-  box-shadow: 0 14px 36px rgba(6, 8, 30, .45);
+  box-shadow: 0 6px 18px rgba(70, 120, 170, .16);
   transition: transform .28s cubic-bezier(.2,.8,.3,1), box-shadow .28s ease;
-  border: 1px solid rgba(255,255,255,.6);
-  animation: cardIn .5s cubic-bezier(.2,.8,.3,1) both;
+  border: 1.5px solid #fff;
+  animation: cardIn .45s cubic-bezier(.2,.8,.3,1) both;
 }
-@keyframes cardIn { from { opacity: 0; transform: translateY(18px) scale(.96); } to { opacity: 1; transform: none; } }
+@keyframes cardIn { from { opacity: 0; transform: translateY(10px) scale(.96); } to { opacity: 1; transform: none; } }
 .game-card::before {
   content: ''; position: absolute; inset: 0; z-index: 2; pointer-events: none;
-  border-radius: var(--radius);
+  border-radius: 14px;
   box-shadow: inset 0 0 0 0 var(--card-color);
   transition: box-shadow .28s ease;
 }
 .game-card:hover {
-  transform: translateY(-10px) scale(1.015);
-  box-shadow: 0 26px 56px rgba(6, 8, 30, .6), 0 0 34px color-mix(in srgb, var(--card-color) 45%, transparent);
+  transform: translateY(-5px) scale(1.02);
+  box-shadow: 0 14px 30px rgba(70, 120, 170, .28), 0 0 18px color-mix(in srgb, var(--card-color) 35%, transparent);
 }
 .game-card:hover::before { box-shadow: inset 0 0 0 3px var(--card-color); }
 
 .card-media {
   position: relative;
-  height: 172px;
+  height: 84px;
   background:
     radial-gradient(circle at 50% 28%, rgba(255,255,255,.95), transparent 68%),
     linear-gradient(160deg, color-mix(in srgb, var(--card-color) 42%, #fff), color-mix(in srgb, var(--card-color) 10%, #fff));
@@ -157,9 +153,9 @@ body:not(.game-page)::after {
   overflow: hidden;
 }
 .card-media::before {
-  content: ''; position: absolute; width: 220px; height: 220px; border-radius: 50%;
+  content: ''; position: absolute; width: 110px; height: 110px; border-radius: 50%;
   background: radial-gradient(circle, color-mix(in srgb, var(--card-color) 55%, transparent), transparent 70%);
-  top: -60px; right: -50px; opacity: .6;
+  top: -30px; right: -24px; opacity: .6;
 }
 .card-media::after {
   content: ''; position: absolute; inset: 0;
@@ -167,74 +163,74 @@ body:not(.game-page)::after {
   pointer-events: none;
 }
 .card-thumb {
-  width: 156px; height: 156px; object-fit: contain; position: relative; z-index: 1;
-  filter: drop-shadow(0 12px 16px rgba(40,60,100,.28));
+  width: 74px; height: 74px; object-fit: contain; position: relative; z-index: 1;
+  filter: drop-shadow(0 6px 9px rgba(40,60,100,.26));
   transition: transform .32s cubic-bezier(.2,.8,.3,1);
 }
 .game-card:hover .card-thumb { transform: scale(1.13) rotate(-4deg); }
 .card-icon {
-  font-size: 82px; position: relative; z-index: 1;
-  filter: drop-shadow(0 10px 14px rgba(0,0,0,.22));
+  font-size: 40px; position: relative; z-index: 1;
+  filter: drop-shadow(0 5px 7px rgba(0,0,0,.22));
   transition: transform .32s cubic-bezier(.2,.8,.3,1);
 }
 .game-card:hover .card-icon { transform: scale(1.16) rotate(-5deg); }
 .card-num {
-  position: absolute; top: 12px; left: 12px; z-index: 3;
-  font-size: 12px; font-weight: 800; color: #fff;
-  background: rgba(20,24,50,.5); backdrop-filter: blur(6px);
-  padding: 5px 11px; border-radius: 14px; letter-spacing: .5px;
+  position: absolute; top: 6px; left: 6px; z-index: 3;
+  font-size: 9px; font-weight: 800; color: #fff;
+  background: rgba(60,123,214,.82); backdrop-filter: blur(6px);
+  padding: 3px 6px; border-radius: 9px; letter-spacing: .3px;
 }
 .card-badge {
-  position: absolute; top: 12px; right: 12px; z-index: 3;
-  font-size: 11px; font-weight: 800; color: #fff;
-  padding: 5px 11px; border-radius: 14px; letter-spacing: .5px;
+  position: absolute; top: 6px; right: 6px; z-index: 3;
+  font-size: 9px; font-weight: 800; color: #fff;
+  padding: 3px 6px; border-radius: 9px; letter-spacing: .3px;
   background: linear-gradient(135deg, #FF6B9D, #FF9E4A);
-  box-shadow: 0 4px 12px rgba(255,107,157,.4);
+  box-shadow: 0 3px 8px rgba(255,107,157,.4);
 }
 .card-badge.hot { background: linear-gradient(135deg, #FF5B5B, #FF9E4A); }
 .card-badge.classic { background: linear-gradient(135deg, #4DA8FF, #7B61FF); }
 .card-play {
-  position: absolute; right: 14px; bottom: 14px; z-index: 3;
+  position: absolute; right: 7px; bottom: 7px; z-index: 3;
   background: rgba(16,20,48,.82); color: #fff;
-  font-size: 13px; font-weight: 700;
-  padding: 8px 16px; border-radius: 22px;
-  opacity: 0; transform: translateY(8px);
+  font-size: 10px; font-weight: 700;
+  padding: 5px 9px; border-radius: 14px;
+  opacity: 0; transform: translateY(6px);
   transition: opacity .25s ease, transform .25s ease;
   backdrop-filter: blur(6px);
 }
 .game-card:hover .card-play { opacity: 1; transform: translateY(0); }
-.card-body { padding: 17px 20px 20px; }
-.card-body h3 { font-size: 19px; margin-bottom: 7px; font-weight: 900; color: #1E2A44; }
-.card-body p { color: var(--ink-soft); font-size: 13px; line-height: 1.6; min-height: 42px; }
-.card-tags { margin-top: 13px; display: flex; flex-wrap: wrap; gap: 7px; }
+.card-body { padding: 9px 11px 11px; }
+.card-body h3 { font-size: 13px; margin-bottom: 4px; font-weight: 900; color: #1E2A44; line-height: 1.25; }
+.card-body p { color: var(--ink-soft); font-size: 10px; line-height: 1.45; min-height: 0;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.card-tags { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
 .tag {
-  font-size: 11px; font-weight: 700;
+  font-size: 9px; font-weight: 700;
   color: color-mix(in srgb, var(--card-color) 78%, #23324A);
   background: color-mix(in srgb, var(--card-color) 15%, #fff);
-  padding: 5px 10px; border-radius: 20px;
+  padding: 3px 7px; border-radius: 12px;
 }
 
 .more-hint {
   text-align: center; margin-top: 48px; padding: 34px;
-  background: rgba(255,255,255,.07);
+  background: rgba(255,255,255,.82);
   border-radius: var(--radius);
-  border: 1.5px dashed rgba(255,255,255,.22);
-  backdrop-filter: blur(10px);
+  border: 2px dashed rgba(120,170,220,.5);
 }
 .more-hint span { font-size: 34px; }
-.more-hint p { color: rgba(255,255,255,.9); margin-top: 10px; font-size: 15px; font-weight: 600; }
+.more-hint p { color: #5A7091; margin-top: 10px; font-size: 15px; font-weight: 700; }
 
 /* ---------- 页脚 ---------- */
-.site-footer { text-align: center; padding: 26px; color: rgba(255,255,255,.55); font-size: 12px; font-weight: 500; letter-spacing: .5px; }
+.site-footer { text-align: center; padding: 26px; color: #7A8FA8; font-size: 12px; font-weight: 600; letter-spacing: .5px; }
 
 /* ---------- 广告占位 ---------- */
 .ad-slot-wrap { max-width: 1080px; margin: 12px auto; padding: 0 24px; }
 .ad-placeholder {
   min-height: 60px; display: flex; align-items: center; justify-content: center; gap: 10px;
-  background: rgba(255,255,255,.06); border: 1px dashed rgba(255,255,255,.16);
-  border-radius: 10px; color: rgba(255,255,255,.45); font-size: 12px;
+  background: rgba(255,255,255,.6); border: 1px dashed rgba(120,170,220,.4);
+  border-radius: 10px; color: #9AAABB; font-size: 12px;
 }
-.ad-placeholder-tag { background: rgba(255,255,255,.1); color: rgba(255,255,255,.6); padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+.ad-placeholder-tag { background: rgba(255,255,255,.8); color: #8A9BB0; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
 
 /* ================= 游戏页样式 ================= */
 .game-page {
@@ -361,10 +357,10 @@ body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none
   .stat-item .num { font-size: 21px; }
   .filter-bar { gap: 8px; margin-bottom: 24px; }
   .filter-btn { font-size: 12px; padding: 8px 14px; }
-  .games-grid { grid-template-columns: 1fr; gap: 16px; }
-  .card-media { height: 156px; }
-  .card-thumb { width: 140px; height: 140px; }
-  .card-icon { font-size: 70px; }
+  .games-grid { grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 10px; }
+  .card-media { height: 72px; }
+  .card-thumb { width: 62px; height: 62px; }
+  .card-icon { font-size: 34px; }
 }
 
 /* ================= 街机类小游戏通用样式 ================= */

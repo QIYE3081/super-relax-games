@@ -63,7 +63,8 @@
     var $ = function (id) { return document.getElementById(id); };
 
     var FRUITS = ['🍎', '🍊', '🍉', '🍐', '🍍'];
-    var SLING = { x: 70, y: H - 90 };
+    // 弹弓右移并下压到右下角，方便拇指拖动；瓶子塔整体右置、逐层右倾，不挡视线
+    var SLING = { x: 112, y: H - 64 };
     var GROUND = H - 40;
 
     var level, ammo, best = A.Best.get('slingshot');
@@ -90,13 +91,15 @@
       bottles = [];
       var cols = Math.min(3 + Math.floor(level / 2), 5);
       var rows = Math.min(2 + Math.floor(level / 3), 5);
-      var bx = W - 70 - cols * 26;
+      // 瓶子塔放在画面右侧偏上，整体向右上倾斜，与右下弹弓形成前后错位，视线更通透
+      var bx = W - 44 - cols * 26;
       for (var r = 0; r < rows; r++) {
         for (var c = 0; c < cols; c++) {
           // 金字塔：上层少一个
           if (r > 0 && c === 0 && level % 2 === 0) continue;
+          var lean = r * 6; // 逐层向右轻微倾斜
           bottles.push({
-            x: bx + c * 26 + (r % 2 ? 13 : 0), y: GROUND - 20 - r * 34,
+            x: bx + c * 26 + (r % 2 ? 13 : 0) + lean, y: GROUND - 34 - r * 32,
             vx: 0, vy: 0, w: 20, h: 30, angle: 0, av: 0, falling: false, alive: true
           });
         }
@@ -240,6 +243,24 @@
       // 地面
       ctx.fillStyle = '#7CBF5E'; ctx.fillRect(0, GROUND, W, H - GROUND);
       ctx.fillStyle = '#68A84E'; ctx.fillRect(0, GROUND, W, 6);
+      // 瓶子下方缓坡土台：右侧略高，形成前后倾斜错落（纯视觉）
+      if (bottles.length) {
+        var minX = Math.min.apply(null, bottles.map(function (b) { return b.x; })) - 22;
+        var maxX = Math.max.apply(null, bottles.map(function (b) { return b.x; })) + 22;
+        ctx.fillStyle = '#B98A52';
+        ctx.beginPath();
+        ctx.moveTo(minX, GROUND);
+        ctx.lineTo(maxX, GROUND - 14);
+        ctx.lineTo(maxX, GROUND);
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#A5763F';
+        ctx.beginPath();
+        ctx.moveTo(minX, GROUND);
+        ctx.lineTo(maxX, GROUND - 14);
+        ctx.lineTo(maxX, GROUND - 10);
+        ctx.lineTo(minX, GROUND + 4);
+        ctx.closePath(); ctx.fill();
+      }
       // 瓶子
       bottles.forEach(function (b) { drawBottle(b); });
       // 弹弓
