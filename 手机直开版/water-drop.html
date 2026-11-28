@@ -1,0 +1,1028 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>水滴旅行 - 洪哥做的好耍小游戏</title>
+  <style>
+/* ================= 洪哥做的好耍小游戏 · v9 暖白墨蓝质感视觉 =================
+   设计原则：60-30-10（暖白中性 60% / 墨蓝品牌 30% / 珊瑚强调 10%）
+   字体：同一无衬线家族，靠字重 500/600/700/800 建立层级，不用渐变字
+   ============================================================================ */
+:root {
+  --ink: #22304A;          /* 主文字：深墨蓝，对比度充足 */
+  --ink-soft: #6B7A93;     /* 次文字：中灰蓝 */
+  --paper: #FFFFFF;        /* 中性主色：白 */
+  --brand: #2E4A7D;        /* 品牌色：墨蓝 */
+  --brand-2: #3D5E96;      /* 品牌浅一档 */
+  --accent: #EF7A52;       /* 强调色：珊瑚（仅用于关键处） */
+  --line: #E6ECF5;         /* 描边 */
+  --radius: 16px;
+  --shadow: 0 6px 22px rgba(34, 48, 74, .07);
+  --shadow-hover: 0 16px 38px rgba(34, 48, 74, .13);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", "Segoe UI", Roboto, sans-serif;
+  color: var(--ink);
+  background: #F5F8FC;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* 柔和纸质氛围（仅主页）：低饱和暖白 + 淡蓝灰，去掉棉花糖云 */
+body:not(.game-page)::before {
+  content: ''; position: fixed; inset: 0; z-index: -2;
+  background:
+    radial-gradient(900px 600px at 88% -10%, rgba(93,130,190,.14), transparent 60%),
+    radial-gradient(760px 520px at -8% 8%, rgba(239,122,82,.07), transparent 58%),
+    linear-gradient(170deg, #FBFCFE 0%, #F4F7FB 46%, #EDF2F9 100%);
+}
+/* 极淡网点纹理，替代云朵装饰，避免幼稚感 */
+body:not(.game-page)::after {
+  content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background-image: radial-gradient(circle, rgba(46,74,125,.055) 1px, transparent 1.5px);
+  background-size: 26px 26px;
+  -webkit-mask-image: linear-gradient(180deg, rgba(0,0,0,.55), transparent 62%);
+  mask-image: linear-gradient(180deg, rgba(0,0,0,.55), transparent 62%);
+}
+
+/* ---------- 顶部 ---------- */
+.site-header {
+  background: rgba(255, 255, 255, .92);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line);
+  box-shadow: 0 1px 0 rgba(34,48,74,.03);
+  position: sticky; top: 0; z-index: 10;
+}
+.header-inner { max-width: 1080px; margin: 0 auto; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
+.brand { display: flex; align-items: center; gap: 14px; }
+.brand-icon {
+  font-size: 30px; width: 56px; height: 56px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--brand);
+  border-radius: 15px;
+  box-shadow: 0 6px 16px rgba(46,74,125,.24), inset 0 1px 0 rgba(255,255,255,.22);
+  animation: floaty 5s ease-in-out infinite;
+}
+@keyframes floaty { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+.brand-text h1 {
+  font-size: 25px; font-weight: 800; letter-spacing: -.4px;
+  color: var(--ink); line-height: 1.25;
+}
+.brand-text p { color: var(--ink-soft); font-size: 12px; margin-top: 4px; font-weight: 500; letter-spacing: .3px; }
+.header-badge {
+  font-size: 12px; font-weight: 700; color: var(--brand);
+  background: rgba(46,74,125,.06); border: 1px solid rgba(46,74,125,.13);
+  padding: 8px 14px; border-radius: 20px; white-space: nowrap;
+}
+
+/* ---------- 主体 ---------- */
+.main-content { max-width: 1080px; margin: 0 auto; padding: 40px 24px 60px; }
+.intro { text-align: center; margin-bottom: 26px; }
+.intro .eyebrow {
+  display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: 4px;
+  color: var(--accent); margin-bottom: 14px;
+}
+.intro h2 {
+  font-size: 34px; color: var(--ink); font-weight: 800; margin-bottom: 12px; line-height: 1.3;
+  letter-spacing: -.5px;
+}
+.intro h2 em { font-style: normal; color: var(--brand); }
+.intro p { color: var(--ink-soft); font-size: 14px; font-weight: 500; }
+
+/* 统计条 */
+.stats-bar { display: flex; justify-content: center; gap: 14px; margin: 22px 0 26px; }
+.stat-item { text-align: center; background: var(--paper); padding: 12px 24px; border-radius: 14px; border: 1px solid var(--line); box-shadow: var(--shadow); }
+.stat-item .num { font-size: 25px; font-weight: 800; color: var(--brand); line-height: 1; }
+.stat-item .lab { font-size: 11px; color: var(--ink-soft); margin-top: 6px; font-weight: 600; letter-spacing: 1px; }
+.stat-sep { display: none; }
+
+/* 分类筛选 */
+.filter-bar { display: flex; flex-wrap: wrap; justify-content: center; gap: 9px; margin-bottom: 26px; }
+.filter-btn {
+  font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer;
+  color: var(--ink-soft); background: var(--paper);
+  border: 1px solid var(--line); padding: 9px 18px; border-radius: 22px;
+  transition: all .2s ease; box-shadow: 0 2px 8px rgba(34,48,74,.04);
+}
+.filter-btn:hover { color: var(--brand); border-color: rgba(46,74,125,.3); transform: translateY(-2px); box-shadow: var(--shadow); }
+.filter-btn.active {
+  color: #fff; border-color: var(--brand);
+  background: var(--brand);
+  box-shadow: 0 6px 16px rgba(46,74,125,.26);
+}
+.filter-btn .cnt { font-size: 11px; opacity: .75; margin-left: 4px; }
+
+.games-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+.game-card {
+  display: block; text-decoration: none; color: inherit;
+  position: relative;
+  background: var(--paper);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  transition: transform .28s cubic-bezier(.2,.8,.3,1), box-shadow .28s ease;
+  border: 1px solid var(--line);
+  animation: cardIn .45s cubic-bezier(.2,.8,.3,1) both;
+}
+@keyframes cardIn { from { opacity: 0; transform: translateY(10px) scale(.96); } to { opacity: 1; transform: none; } }
+.game-card::before {
+  content: ''; position: absolute; inset: 0; z-index: 2; pointer-events: none;
+  border-radius: 14px;
+  box-shadow: inset 0 0 0 0 var(--brand);
+  transition: box-shadow .28s ease;
+}
+.game-card:hover {
+  transform: translateY(-5px);
+  box-shadow: var(--shadow-hover);
+}
+.game-card:hover::before { box-shadow: inset 0 0 0 2px var(--brand); }
+
+.card-media {
+  position: relative;
+  height: 84px;
+  background: linear-gradient(160deg, #F8FAFD 0%, #EEF3FA 100%);
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+}
+.card-media::before {
+  content: ''; position: absolute; width: 100px; height: 100px; border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--card-color) 16%, transparent), transparent 70%);
+  top: -28px; right: -24px; opacity: .7;
+}
+.card-media::after {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(circle at 50% 120%, rgba(255,255,255,.75), transparent 60%);
+  pointer-events: none;
+}
+.card-thumb {
+  width: 74px; height: 74px; object-fit: contain; position: relative; z-index: 1;
+  filter: drop-shadow(0 6px 8px rgba(34,48,74,.16));
+  transition: transform .32s cubic-bezier(.2,.8,.3,1);
+}
+.game-card:hover .card-thumb { transform: scale(1.1) rotate(-3deg); }
+.card-icon {
+  font-size: 40px; position: relative; z-index: 1;
+  filter: drop-shadow(0 4px 6px rgba(34,48,74,.16));
+  transition: transform .32s cubic-bezier(.2,.8,.3,1);
+}
+.game-card:hover .card-icon { transform: scale(1.12) rotate(-4deg); }
+.card-num {
+  position: absolute; top: 6px; left: 6px; z-index: 3;
+  font-size: 9px; font-weight: 700; color: var(--brand);
+  background: rgba(255,255,255,.9); border: 1px solid var(--line);
+  padding: 3px 6px; border-radius: 9px; letter-spacing: .3px;
+}
+.card-badge {
+  position: absolute; top: 6px; right: 6px; z-index: 3;
+  font-size: 9px; font-weight: 700; color: #fff;
+  padding: 3px 6px; border-radius: 9px; letter-spacing: .3px;
+  background: var(--brand-2);
+}
+.card-badge.hot { background: var(--accent); }
+.card-badge.classic { background: #5A7091; }
+.card-play {
+  position: absolute; right: 7px; bottom: 7px; z-index: 3;
+  background: var(--brand); color: #fff;
+  font-size: 10px; font-weight: 700;
+  padding: 5px 9px; border-radius: 14px;
+  opacity: 0; transform: translateY(6px);
+  transition: opacity .25s ease, transform .25s ease;
+}
+.game-card:hover .card-play { opacity: 1; transform: translateY(0); }
+.card-body { padding: 9px 11px 11px; }
+.card-body h3 { font-size: 13px; margin-bottom: 4px; font-weight: 700; color: var(--ink); line-height: 1.25; }
+.card-body p { color: var(--ink-soft); font-size: 10px; line-height: 1.45; min-height: 0;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.card-tags { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
+.tag {
+  font-size: 9px; font-weight: 600;
+  color: var(--brand-2); background: rgba(46,74,125,.07);
+  padding: 3px 7px; border-radius: 12px;
+}
+
+.more-hint {
+  text-align: center; margin-top: 40px; padding: 30px;
+  background: var(--paper);
+  border-radius: var(--radius);
+  border: 1px dashed rgba(46,74,125,.25);
+  box-shadow: var(--shadow);
+}
+.more-hint span { font-size: 30px; }
+.more-hint p { color: var(--ink-soft); margin-top: 10px; font-size: 14px; font-weight: 600; }
+
+/* ---------- 页脚 ---------- */
+.site-footer { text-align: center; padding: 26px; color: var(--ink-soft); font-size: 11px; font-weight: 500; letter-spacing: .5px; }
+
+/* ---------- 广告占位 ---------- */
+.ad-slot-wrap { max-width: 1080px; margin: 12px auto; padding: 0 24px; }
+.ad-placeholder {
+  min-height: 60px; display: flex; align-items: center; justify-content: center; gap: 10px;
+  background: rgba(255,255,255,.6); border: 1px dashed rgba(120,170,220,.4);
+  border-radius: 10px; color: #9AAABB; font-size: 12px;
+}
+.ad-placeholder-tag { background: rgba(255,255,255,.8); color: #8A9BB0; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+
+/* ================= 游戏页样式 ================= */
+.game-page {
+  background:
+    radial-gradient(900px 500px at 15% 0%, rgba(255,255,255,.5), transparent 60%),
+    linear-gradient(160deg, #DCEBFF 0%, #FBE6F0 100%);
+}
+.game-topbar { max-width: 720px; margin: 0 auto; padding: 18px 20px; display: flex; align-items: center; gap: 14px; }
+.back-btn {
+  display: inline-flex; align-items: center; gap: 6px; text-decoration: none;
+  color: #2E6FE8; font-size: 15px; font-weight: 700;
+  background: #fff; padding: 10px 16px; border-radius: 12px;
+  box-shadow: var(--shadow); transition: transform .15s ease;
+}
+.back-btn:hover { transform: translateX(-3px); }
+.game-title { font-size: 21px; font-weight: 800; color: var(--ink); }
+
+.game-stage { max-width: 720px; margin: 0 auto; padding: 0 20px 40px; text-align: center; }
+.stage-panel {
+  background: rgba(255,255,255,.92);
+  border-radius: 24px; padding: 20px;
+  box-shadow: var(--shadow);
+  display: inline-block; width: 100%;
+  border: 2px solid rgba(255,255,255,.9);
+}
+.progress-wrap { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; font-size: 14px; color: var(--ink-soft); }
+.face-tag {
+  flex: none; font-size: 13px; font-weight: 700; color: #fff;
+  background: linear-gradient(135deg, #6A8DFB, #A78BFA);
+  padding: 5px 12px; border-radius: 18px; white-space: nowrap;
+}
+.progress-bar { flex: 1; height: 16px; background: #E8EEF5; border-radius: 10px; overflow: hidden; }
+.progress-fill {
+  height: 100%; width: 0%;
+  background: linear-gradient(90deg, #5BD6A8, #3A7BD5);
+  border-radius: 10px; transition: width .2s ease;
+}
+#gameCanvas {
+  width: 100%; max-width: 520px; aspect-ratio: 1 / 1;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #DCF0FF 0%, #F6FBEC 100%);
+  cursor: crosshair; touch-action: none; display: block; margin: 0 auto;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.7);
+}
+.game-controls { display: flex; justify-content: center; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+.ctrl-btn {
+  border: none; background: #fff; color: var(--ink);
+  font-size: 14px; font-weight: 700; padding: 11px 18px;
+  border-radius: 12px; box-shadow: var(--shadow); cursor: pointer;
+  transition: transform .15s ease, background .15s ease;
+}
+.ctrl-btn:hover { transform: translateY(-2px); background: #F0F6FF; }
+.ctrl-btn.primary { background: linear-gradient(135deg, #6A8DFB, #8B6BF0); color: #fff; }
+.ctrl-btn.primary:hover { filter: brightness(1.06); }
+.game-tip { color: var(--ink-soft); font-size: 13px; margin-top: 14px; line-height: 1.6; }
+
+/* 完成提示：底部小横条，不遮挡冲洗成果（物体完整可见，可翻面欣赏） */
+.done-overlay {
+  position: fixed; inset: 0;
+  background: transparent;
+  display: none; align-items: flex-end; justify-content: center;
+  z-index: 50; pointer-events: none; padding-bottom: 14px;
+}
+.done-overlay.show { display: flex; animation: fadeIn .25s ease; }
+.done-card {
+  display: flex; align-items: center; gap: 12px;
+  background: rgba(255,255,255,.95);
+  border-radius: 16px; padding: 10px 14px;
+  max-width: 94%; pointer-events: auto;
+  box-shadow: 0 10px 30px rgba(40,60,100,.22);
+  border: 1.5px solid rgba(255,255,255,.9);
+  backdrop-filter: blur(8px);
+  animation: slideUp .35s cubic-bezier(.2,1.2,.4,1);
+}
+.done-emoji { font-size: 28px; flex: none; }
+.done-text { display: flex; flex-direction: column; line-height: 1.35; flex: 1; min-width: 96px; }
+.done-text strong {
+  font-size: 15px;
+  background: linear-gradient(90deg, #6A8DFB, #C86BA8);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.done-text span { color: var(--ink-soft); font-size: 12px; }
+.done-actions { display: flex; gap: 8px; flex: none; }
+.done-btn {
+  border: none; font-size: 12px; font-weight: 700;
+  padding: 8px 12px; border-radius: 10px; cursor: pointer; min-height: 36px;
+  transition: transform .15s ease, filter .15s ease;
+}
+.done-btn:hover { transform: translateY(-1px); filter: brightness(1.04); }
+.done-btn.primary { background: linear-gradient(135deg, #6A8DFB, #8B6BF0); color: #fff; }
+.done-btn.ghost { background: #EEF3FB; color: #2E6FE8; }
+@keyframes slideUp { from { transform: translateY(24px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes popIn { from { transform: scale(.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+/* ================= 移动端增强 ================= */
+html { -webkit-text-size-adjust: 100%; touch-action: manipulation; }
+body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.game-page .game-topbar { padding: 12px 14px; }
+.game-page .game-stage { padding: 0 12px 24px; }
+.game-page .stage-panel { padding: 14px 12px; border-radius: 18px; }
+.ctrl-btn { min-height: 46px; padding: 10px 16px; font-size: 15px; }
+.back-btn { min-height: 44px; }
+.game-tip { font-size: 13px; padding: 0 6px; }
+.face-tag { font-size: 12px; padding: 4px 9px; }
+.progress-wrap { font-size: 12px; gap: 7px; }
+.done-card { padding: 9px 12px; gap: 8px; max-width: 98%; }
+.done-emoji { font-size: 24px; }
+.done-text strong { font-size: 13px; }
+.done-text span { font-size: 11px; }
+.done-btn { font-size: 11px; padding: 7px 9px; min-height: 34px; }
+
+@media (max-width: 600px) {
+  .header-inner { padding: 14px 18px; }
+  .brand-icon { width: 52px; height: 52px; font-size: 30px; border-radius: 16px; }
+  .brand-text h1 { font-size: 21px; }
+  .brand-text p { font-size: 11px; }
+  .header-badge { display: none; }
+  .main-content { padding: 30px 16px 44px; }
+  .intro h2 { font-size: 25px; }
+  .intro p { font-size: 13px; }
+  .stats-bar { gap: 22px; margin: 20px 0 24px; }
+  .stat-item .num { font-size: 21px; }
+  .filter-bar { gap: 8px; margin-bottom: 24px; }
+  .filter-btn { font-size: 12px; padding: 8px 14px; }
+  .games-grid { grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 10px; }
+  .card-media { height: 72px; }
+  .card-thumb { width: 62px; height: 62px; }
+  .card-icon { font-size: 34px; }
+}
+
+/* ================= 街机类小游戏通用样式 ================= */
+.arcade-wrap { max-width: 520px; margin: 0 auto; padding: 0 14px 34px; text-align: center; }
+.arcade-hud {
+  display: flex; align-items: stretch; gap: 8px; margin-bottom: 12px;
+}
+.arcade-stat {
+  flex: 1; background: rgba(255,255,255,.9); border-radius: 14px;
+  padding: 8px 6px; box-shadow: 0 6px 18px rgba(50,70,130,.12);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.arcade-stat .lbl { font-size: 11px; color: var(--ink-soft); font-weight: 600; }
+.arcade-stat .val { font-size: 22px; font-weight: 900; color: var(--ink); line-height: 1.15; }
+.arcade-stat.hi .val { color: #F0852A; }
+.arcade-stat.combo .val { color: #E0457B; }
+.arcade-canvas-box {
+  position: relative; width: 100%; background: #fff;
+  border-radius: 20px; overflow: hidden;
+  box-shadow: 0 14px 36px rgba(50,70,130,.2);
+  border: 3px solid rgba(255,255,255,.85);
+  touch-action: none; -webkit-tap-highlight-color: transparent;
+}
+.arcade-canvas-box canvas { display: block; width: 100%; height: auto; }
+.arcade-controls { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 14px; }
+.arcade-btn {
+  min-height: 44px; padding: 10px 20px; border: none; border-radius: 24px;
+  font-size: 15px; font-weight: 700; cursor: pointer; font-family: inherit;
+  background: #EEF3FB; color: #2E6FE8; transition: transform .15s, filter .15s;
+}
+.arcade-btn:hover { transform: translateY(-2px); filter: brightness(1.03); }
+.arcade-btn:active { transform: scale(.96); }
+.arcade-btn.primary { background: linear-gradient(135deg, #6A8DFB, #8B6BF0); color: #fff; }
+.arcade-btn.big { min-height: 52px; font-size: 17px; padding: 12px 30px; }
+.arcade-tip { color: #fff; font-size: 13px; font-weight: 500; margin-top: 14px; line-height: 1.6;
+  text-shadow: 0 1px 6px rgba(40,50,110,.3); }
+
+/* 开始/结束遮罩 */
+.arcade-overlay {
+  position: absolute; inset: 0; z-index: 20;
+  display: none; align-items: center; justify-content: center;
+  background: rgba(30,42,74,.42); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+  padding: 18px;
+}
+.arcade-overlay.show { display: flex; animation: fadeIn .25s ease; }
+.arcade-panel {
+  background: #fff; border-radius: 22px; padding: 24px 22px; width: 100%; max-width: 340px;
+  box-shadow: 0 18px 44px rgba(30,42,74,.32); animation: popIn .3s cubic-bezier(.2,.9,.3,1.2);
+}
+.arcade-panel .p-emoji { font-size: 50px; line-height: 1; }
+.arcade-panel h2 { font-size: 23px; margin: 10px 0 6px; font-weight: 900; }
+.arcade-panel .p-sub { color: var(--ink-soft); font-size: 14px; line-height: 1.6; margin-bottom: 18px; }
+.arcade-panel .p-score { font-size: 15px; color: var(--ink); margin: 12px 0; font-weight: 700; }
+.arcade-panel .p-score b { font-size: 30px; color: #F0852A; }
+.arcade-panel .p-new { display: inline-block; background: linear-gradient(135deg,#FFB020,#FF6B6B);
+  color: #fff; font-size: 12px; font-weight: 800; padding: 3px 10px; border-radius: 12px; margin-top: 6px; }
+.arcade-panel .arcade-btn { width: 100%; margin-top: 8px; }
+
+/* 难度选择（贪吃蛇） */
+.level-picker { display: flex; gap: 8px; margin: 4px 0 14px; }
+.level-btn {
+  flex: 1; min-height: 42px; border: 2px solid #E2E9F5; border-radius: 12px;
+  background: #F7FAFF; color: #5A6B84; font-size: 14px; font-weight: 700;
+  font-family: inherit; cursor: pointer; transition: all .15s;
+}
+.level-btn:hover { border-color: #9DB8F5; }
+.level-btn.active {
+  background: linear-gradient(135deg, #6A8DFB, #8B6BF0); color: #fff;
+  border-color: transparent; box-shadow: 0 6px 16px rgba(106,141,251,.35);
+}
+.arcade-level-bar {
+  display: flex; justify-content: space-between; align-items: center;
+  margin: -2px 2px 10px; padding: 0 4px;
+  font-size: 13px; font-weight: 700; color: #fff;
+  text-shadow: 0 1px 5px rgba(40,50,110,.3);
+}
+.arcade-level-bar .lv-speed { font-size: 12px; font-weight: 600; opacity: .92; }
+
+/* 虚拟方向键（贪吃蛇用） */
+.dpad { display: flex; flex-direction: column; align-items: center; gap: 6px; margin-top: 14px; }
+.dpad-row { display: flex; gap: 6px; }
+.dpad-key {
+  width: 58px; height: 52px; border: none; border-radius: 14px; font-size: 22px; font-weight: 800;
+  background: rgba(255,255,255,.9); color: #2E6FE8; box-shadow: 0 5px 14px rgba(50,70,130,.16);
+  cursor: pointer; touch-action: manipulation;
+}
+.dpad-key:active { transform: scale(.94); background: #DCE8FF; }
+.dpad-key.space { visibility: hidden; }
+
+</style>
+</head>
+<body class="game-page">
+  <div data-ad-slot="banner-top" class="ad-slot-wrap"></div>
+  <div class="game-topbar">
+    <a class="back-btn" href="index.html">← 返回游戏大厅</a>
+    <div class="game-title">💧 水滴旅行</div>
+  </div>
+
+  <div class="arcade-wrap">
+    <div class="arcade-hud">
+      <div class="arcade-stat"><span class="lbl">关卡</span><span class="val" id="level">1/3</span></div>
+      <div class="arcade-stat combo"><span class="lbl">露珠</span><span class="val" id="collect">0/3</span></div>
+      <div class="arcade-stat hi"><span class="lbl">机会</span><span class="val" id="lives">3</span></div>
+    </div>
+
+    <div class="arcade-canvas-box" id="box">
+      <canvas id="cv"></canvas>
+      <div class="arcade-overlay show" id="startOv">
+        <div class="arcade-panel">
+          <div class="p-emoji">💧</div>
+          <h2>水滴旅行</h2>
+          <p class="p-sub">一颗小露珠要顺着荷叶回家。手指在画面上上下移动，就能倾斜整片荷叶——露珠会受重力滚动。沿途收集够小露珠，右端的水潭才会打开，把露珠送进去就过关！别让它从左边滚下去。</p>
+          <button class="arcade-btn primary big" id="startBtn">开始旅行</button>
+        </div>
+      </div>
+      <div class="arcade-overlay" id="endOv">
+        <div class="arcade-panel">
+          <div class="p-emoji" id="endEmoji">🏠</div>
+          <h2 id="endTitle">送回家啦！</h2>
+          <div class="p-sub" id="endDesc">露珠平安回到了水潭。</div>
+          <button class="arcade-btn primary big" id="againBtn">再玩一次</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="arcade-controls">
+      <button class="arcade-btn" id="retryBtn">↻ 重来本关</button>
+      <button class="arcade-btn" id="muteBtn">🔊 音效开</button>
+    </div>
+    <p class="arcade-tip">手指在画面里上下滑动来倾斜荷叶。露珠会朝低的一边滚，先收集够小露珠，再把它送到右端发光的水潭。</p>
+  </div>
+
+  <div data-ad-slot="banner-bottom" class="ad-slot-wrap"></div>
+
+  <script>
+/**
+ * 广告位管理模块（全站共用）
+ * ------------------------------------------------------------
+ * 设计目标：现在不影响游戏体验，后期接入广告零改动页面。
+ *
+ * 使用方法：
+ *   1. 在任意页面需要广告的地方写：<div data-ad-slot="banner-top"></div>
+ *   2. 本脚本会自动扫描所有 [data-ad-slot] 并注入广告（或占位）。
+ *
+ * 后期接入真实广告（如百度联盟 / 穿山甲 / Google AdSense）：
+ *   只需把 AD_CONFIG.enabled 设为 true，并在 renderSlot() 中
+ *   按 slot 名称填入对应 SDK 代码即可，页面无需任何改动。
+ */
+(function (global) {
+  'use strict';
+
+  // ============ 全局配置：后期挂广告只改这里 ============
+  var AD_CONFIG = {
+    enabled: false,        // 总开关：false=不显示任何广告（当前）；true=显示广告位
+    showPlaceholder: true, // enabled 时是否显示占位框（接入真实广告后设为 false）
+    // 各广告位尺寸/说明，接入 SDK 时可据此选择广告规格
+    slots: {
+      'banner-top':    { label: '顶部横幅广告', size: '728×90 / 320×50' },
+      'banner-bottom': { label: '底部横幅广告', size: '728×90 / 320×50' },
+      'card-inline':   { label: '游戏列表信息流广告', size: '自适应' },
+      'rewarded':      { label: '激励视频广告（通关后可看）', size: '视频' }
+    }
+  };
+
+  /**
+   * 渲染单个广告位。
+   * 接入真实广告时，在此函数内按 slot 名称分支填入 SDK 代码。
+   */
+  function renderSlot(el, slotName) {
+    if (!AD_CONFIG.enabled) {
+      el.style.display = 'none';
+      return;
+    }
+    el.style.display = '';
+
+    if (AD_CONFIG.showPlaceholder) {
+      var info = AD_CONFIG.slots[slotName] || { label: slotName, size: '自适应' };
+      el.innerHTML =
+        '<div class="ad-placeholder" title="后期接入广告的位置">' +
+        '<span class="ad-placeholder-tag">广告</span>' +
+        '<span>' + info.label + ' · ' + info.size + '</span>' +
+        '</div>';
+      return;
+    }
+
+    // ---- 后期接入真实广告 SDK 的位置 ----
+    // 示例结构（按实际平台替换）：
+    // if (slotName === 'banner-top') {
+    //   // 百度联盟 / AdSense 代码片段
+    // }
+  }
+
+  function init() {
+    var slots = document.querySelectorAll('[data-ad-slot]');
+    for (var i = 0; i < slots.length; i++) {
+      renderSlot(slots[i], slots[i].getAttribute('data-ad-slot'));
+    }
+  }
+
+  // 暴露给外部：允许运行时开启广告（如后台配置下发）
+  global.AdManager = {
+    config: AD_CONFIG,
+    init: init,
+    enable: function (showPlaceholder) {
+      AD_CONFIG.enabled = true;
+      AD_CONFIG.showPlaceholder = showPlaceholder !== false;
+      init();
+    },
+    disable: function () {
+      AD_CONFIG.enabled = false;
+      init();
+    }
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})(window);
+
+</script>
+  <script>
+/**
+ * 街机小游戏通用工具库（跳一跳/合成/三消/贪吃蛇/打砖块共用）
+ * 提供：Web Audio 合成音效、最高分存储、Canvas 高清适配、震动/抖动反馈。
+ * 零外部依赖，复制本文件即可复用。
+ */
+(function (global) {
+  'use strict';
+
+  /* ---------- Web Audio 音效 ---------- */
+  var ctx = null;
+  var muted = false;
+
+  function ac() {
+    if (muted) return null;
+    if (!ctx) {
+      try { ctx = new (window.AudioContext || window.webkitAudioContext)(); }
+      catch (e) { return null; }
+    }
+    if (ctx.state === 'suspended') { try { ctx.resume(); } catch (e) {} }
+    return ctx;
+  }
+
+  function tone(freq, dur, type, vol, delay, endFreq) {
+    var a = ac(); if (!a) return;
+    var t = a.currentTime + (delay || 0);
+    var o = a.createOscillator();
+    var g = a.createGain();
+    o.type = type || 'sine';
+    o.frequency.setValueAtTime(freq, t);
+    if (endFreq) o.frequency.exponentialRampToValueAtTime(Math.max(1, endFreq), t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol || 0.14, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(a.destination);
+    o.start(t); o.stop(t + dur + 0.03);
+  }
+
+  var SFX = {
+    tap:   function () { tone(520, 0.07, 'sine', 0.10); },
+    jump:  function () { tone(300, 0.18, 'triangle', 0.16, 0, 720); },
+    land:  function () { tone(220, 0.12, 'sine', 0.18, 0, 150); },
+    score: function () { tone(660, 0.09, 'sine', 0.12); tone(880, 0.12, 'sine', 0.12, 0.07); },
+    eat:   function () { tone(480, 0.08, 'square', 0.09, 0, 640); },
+    combo: function (n) { var f = 600 + (n || 1) * 90; tone(f, 0.1, 'sine', 0.13); tone(f * 1.25, 0.12, 'sine', 0.11, 0.06); },
+    merge: function (lv) { var f = 320 + (lv || 1) * 60; tone(f, 0.14, 'triangle', 0.14, 0, f * 1.6); },
+    fail:  function () { tone(400, 0.35, 'sawtooth', 0.14, 0, 120); },
+    win:   function () { [523, 659, 784, 1047].forEach(function (f, i) { tone(f, 0.16, 'sine', 0.13, i * 0.1); }); },
+    click: function () { tone(700, 0.05, 'sine', 0.08); }
+  };
+
+  function setMuted(v) { muted = !!v; }
+  function isMuted() { return muted; }
+
+  /* ---------- 最高分 ---------- */
+  var Best = {
+    get: function (key) {
+      try { return parseInt(localStorage.getItem('sg_arcade_' + key) || '0', 10) || 0; }
+      catch (e) { return 0; }
+    },
+    set: function (key, val) {
+      try { localStorage.setItem('sg_arcade_' + key, String(val)); } catch (e) {}
+    }
+  };
+
+  /* ---------- Canvas 高清适配 ----------
+   * 逻辑坐标固定为 w×h，物理像素按 DPR 放大，CSS 宽度 100% 自适应。
+   * 返回已 setTransform 的 2D context，绘图直接用 0..w / 0..h 逻辑坐标。
+   */
+  function fitCanvas(canvas, w, h) {
+    var dpr = Math.min(global.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    canvas.style.width = '100%';
+    canvas.style.height = 'auto';
+    var c = canvas.getContext('2d');
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return c;
+  }
+
+  /* ---------- 反馈 ---------- */
+  function vibrate(ms) { try { if (navigator.vibrate) navigator.vibrate(ms || 20); } catch (e) {} }
+  function shake(el) {
+    if (!el) return;
+    el.style.transition = 'transform .06s';
+    el.style.transform = 'translate(' + (Math.random() * 8 - 4) + 'px,' + (Math.random() * 8 - 4) + 'px)';
+    setTimeout(function () { el.style.transform = ''; }, 90);
+  }
+
+  /* ---------- 数值 ---------- */
+  function rand(a, b) { return a + Math.random() * (b - a); }
+  function randInt(a, b) { return Math.floor(rand(a, b + 1)); }
+  function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+  function lerp(a, b, t) { return a + (b - a) * t; }
+
+  /* ---------- 绘图工具 ---------- */
+  function roundRectPath(c, x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    c.beginPath();
+    c.moveTo(x + r, y);
+    c.arcTo(x + w, y, x + w, y + h, r);
+    c.arcTo(x + w, y + h, x, y + h, r);
+    c.arcTo(x, y + h, x, y, r);
+    c.arcTo(x, y, x + w, y, r);
+    c.closePath();
+  }
+  // 颜色明暗调节：amt>0 变亮，amt<0 变暗。接受 #rrggbb 或 rgb()
+  function shade(color, amt) {
+    var r, g, b;
+    if (color.charAt(0) === '#') {
+      var n = parseInt(color.slice(1), 16);
+      r = (n >> 16) & 255; g = (n >> 8) & 255; b = n & 255;
+    } else {
+      var m = color.match(/\d+/g);
+      if (!m) return color;
+      r = +m[0]; g = +m[1]; b = +m[2];
+    }
+    function f(v) { return Math.round(amt > 0 ? v + (255 - v) * amt : v * (1 + amt)); }
+    return 'rgb(' + clamp(f(r), 0, 255) + ',' + clamp(f(g), 0, 255) + ',' + clamp(f(b), 0, 255) + ')';
+  }
+  // 发光文字
+  function glowText(c, text, x, y, font, color, glow) {
+    c.font = font; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.shadowColor = glow || color; c.shadowBlur = 16;
+    c.fillStyle = color; c.fillText(text, x, y);
+    c.shadowBlur = 0;
+  }
+
+  /* ---------- 粒子系统 ---------- */
+  function Particles() { this.list = []; }
+  Particles.prototype.burst = function (x, y, opt) {
+    opt = opt || {};
+    var n = opt.count || 12;
+    for (var i = 0; i < n; i++) {
+      var a = opt.angle !== undefined ? opt.angle + rand(-0.6, 0.6) : rand(0, Math.PI * 2);
+      var sp = rand(opt.speedMin || 60, opt.speedMax || 240);
+      this.list.push({
+        x: x, y: y,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+        life: rand(opt.lifeMin || 0.4, opt.lifeMax || 0.9),
+        maxLife: 0,
+        size: rand(opt.sizeMin || 3, opt.sizeMax || 8),
+        color: Array.isArray(opt.colors) ? opt.colors[randInt(0, opt.colors.length - 1)] : (opt.color || '#fff'),
+        gravity: opt.gravity === undefined ? 300 : opt.gravity,
+        shape: opt.shape || 'circle'
+      });
+      this.list[this.list.length - 1].maxLife = this.list[this.list.length - 1].life;
+    }
+  };
+  Particles.prototype.update = function (dt) {
+    for (var i = this.list.length - 1; i >= 0; i--) {
+      var p = this.list[i];
+      p.life -= dt;
+      p.vy += p.gravity * dt;
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      if (p.life <= 0) this.list.splice(i, 1);
+    }
+  };
+  Particles.prototype.draw = function (c) {
+    for (var i = 0; i < this.list.length; i++) {
+      var p = this.list[i];
+      c.globalAlpha = clamp(p.life / p.maxLife, 0, 1);
+      c.fillStyle = p.color;
+      if (p.shape === 'rect') {
+        c.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+      } else {
+        c.beginPath(); c.arc(p.x, p.y, p.size / 2, 0, Math.PI * 2); c.fill();
+      }
+    }
+    c.globalAlpha = 1;
+  };
+  Particles.prototype.clear = function () { this.list.length = 0; };
+
+  // 浮动文字（得分飘字）
+  function Floaters() { this.list = []; }
+  Floaters.prototype.add = function (x, y, text, color, size) {
+    this.list.push({ x: x, y: y, text: text, color: color || '#fff', size: size || 20, life: 1, maxLife: 1 });
+  };
+  Floaters.prototype.update = function (dt) {
+    for (var i = this.list.length - 1; i >= 0; i--) {
+      var f = this.list[i];
+      f.life -= dt * 1.2; f.y -= 42 * dt;
+      if (f.life <= 0) this.list.splice(i, 1);
+    }
+  };
+  Floaters.prototype.draw = function (c) {
+    c.textAlign = 'center'; c.textBaseline = 'middle';
+    for (var i = 0; i < this.list.length; i++) {
+      var f = this.list[i];
+      c.globalAlpha = clamp(f.life / f.maxLife, 0, 1);
+      c.font = 'bold ' + f.size + 'px sans-serif';
+      c.shadowColor = f.color; c.shadowBlur = 10;
+      c.fillStyle = f.color; c.fillText(f.text, f.x, f.y);
+      c.shadowBlur = 0;
+    }
+    c.globalAlpha = 1;
+  };
+  Floaters.prototype.clear = function () { this.list.length = 0; };
+
+  global.Arcade = {
+    SFX: SFX, Best: Best, fitCanvas: fitCanvas,
+    setMuted: setMuted, isMuted: isMuted,
+    vibrate: vibrate, shake: shake,
+    rand: rand, randInt: randInt, clamp: clamp, lerp: lerp,
+    roundRectPath: roundRectPath, shade: shade, glowText: glowText,
+    Particles: Particles, Floaters: Floaters
+  };
+})(window);
+
+</script>
+  <script>
+  (function () {
+    'use strict';
+    var A = window.Arcade;
+    var W = 480, H = 560;
+    var cv = document.getElementById('cv');
+    var ctx = A.fitCanvas(cv, W, H);
+    var box = document.getElementById('box');
+    var $ = function (id) { return document.getElementById(id); };
+    var CX = W / 2, CY = H / 2 + 30;
+    var DROP_R = 14, HALF_THICK = 9;
+
+    var LEVELS = [
+      { half: 168, need: 3, lives: 3, friction: 1.1, drops: [-110, -20, 90] },
+      { half: 186, need: 4, lives: 3, friction: 1.5, drops: [-140, -50, 40, 130] },
+      { half: 200, need: 5, lives: 4, friction: 1.9, drops: [-160, -90, -10, 80, 150] }
+    ];
+
+    var levelIdx, half, need, lives, friction, drops, angle, targetAngle, dropS, dropV, collected,
+        running, over, particles, floaters, lastTs, time, pointerY, msg, msgLife;
+
+    function loadLevel(i) {
+      levelIdx = i;
+      var L = LEVELS[i];
+      half = L.half; need = L.need; lives = L.lives; friction = L.friction;
+      drops = L.drops.map(function (s) { return { s: s, got: false, ph: A.rand(0, 6.28) }; });
+      angle = 0; targetAngle = 0; dropS = -half + 30; dropV = 0; collected = 0;
+      msg = ''; msgLife = 0;
+      particles = new A.Particles(); floaters = new A.Floaters();
+      $('level').textContent = (i + 1) + '/' + LEVELS.length;
+      updateHud();
+    }
+    function resetAll() {
+      over = false; running = false; time = 0; pointerY = null;
+      loadLevel(0);
+      $('endOv').classList.remove('show');
+      $('startOv').classList.add('show');
+    }
+    function start() {
+      $('startOv').classList.remove('show');
+      running = true; lastTs = performance.now();
+    }
+    function updateHud() {
+      $('collect').textContent = collected + '/' + need;
+      $('lives').textContent = lives;
+    }
+    function dropPos(s) {
+      var off = DROP_R + HALF_THICK;
+      return {
+        x: CX + Math.cos(angle) * s + Math.sin(angle) * off,
+        y: CY + Math.sin(angle) * s - Math.cos(angle) * off
+      };
+    }
+
+    function respawn() {
+      lives--; updateHud();
+      dropS = -half + 30; dropV = 0; angle = 0; targetAngle = 0;
+      A.SFX.fail(); A.vibrate(30);
+      if (lives <= 0) {
+        over = true; running = false;
+        $('endEmoji').textContent = '💧';
+        $('endTitle').textContent = '露珠溜走了…';
+        $('endDesc').textContent = '再试一次，用荷叶把露珠稳稳送到水潭吧！';
+        $('endOv').classList.add('show');
+      }
+    }
+    function winLevel() {
+      A.SFX.win(); A.vibrate(35);
+      var p = dropPos(half);
+      particles.burst(p.x, p.y, { count: 26, colors: ['#6EC1FF', '#DFF3FF', '#FFFFFF'], speedMax: 240, lifeMax: 1, gravity: 120 });
+      if (levelIdx < LEVELS.length - 1) {
+        msg = '送达！下一片荷叶～'; msgLife = 1.4;
+        setTimeout(function () { if (!over) loadLevel(levelIdx + 1); }, 1200);
+      } else {
+        over = true; running = false;
+        $('endEmoji').textContent = '🏠';
+        $('endTitle').textContent = '露珠回家啦！';
+        $('endDesc').textContent = '三片荷叶都顺利走过，露珠安全抵达水潭！';
+        $('endOv').classList.add('show');
+      }
+    }
+
+    function update(dt) {
+      // 平滑倾斜
+      angle += (targetAngle - angle) * Math.min(1, dt * 9);
+      // 露珠沿板滚动：切向加速度 = g*sin(angle)
+      var G = 900;
+      dropV += G * Math.sin(angle) * dt;
+      dropV -= dropV * friction * dt;
+      dropS += dropV * dt;
+      // 收集小露珠
+      for (var i = 0; i < drops.length; i++) {
+        var d = drops[i];
+        if (!d.got && Math.abs(dropS - d.s) < 16) {
+          d.got = true; collected++; updateHud();
+          var dp = dropPos(d.s);
+          particles.burst(dp.x, dp.y, { count: 10, colors: ['#6EC1FF', '#FFFFFF'], speedMax: 120, lifeMax: 0.6, gravity: 100 });
+          floaters.add(dp.x, dp.y - 20, '+1', '#6EC1FF', 18);
+          A.SFX.eat(); A.vibrate(8);
+        }
+      }
+      // 左端掉出
+      if (dropS < -half - 8) { respawn(); return; }
+      // 右端
+      if (dropS > half) {
+        if (collected >= need) { winLevel(); return; }
+        else {
+          dropS = half; dropV = -Math.abs(dropV) * 0.5 - 60;
+          if (msgLife <= 0) { msg = '还差 ' + (need - collected) + ' 颗露珠，水潭还没开'; msgLife = 1.4; }
+          A.SFX.tap();
+        }
+      }
+      if (msgLife > 0) msgLife -= dt;
+    }
+
+    function drawLeaf() {
+      ctx.save();
+      ctx.translate(CX, CY);
+      ctx.rotate(angle);
+      // 叶片主体
+      ctx.fillStyle = '#4FA86B';
+      ctx.shadowColor = 'rgba(20,60,40,.35)'; ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, half + 16, HALF_THICK + 8, 0, 0, 6.28);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#63C07E';
+      ctx.beginPath();
+      ctx.ellipse(0, -2, half + 10, HALF_THICK + 3, 0, 0, 6.28);
+      ctx.fill();
+      // 叶脉
+      ctx.strokeStyle = 'rgba(230,255,235,.45)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(-half, 0); ctx.lineTo(half, 0); ctx.stroke();
+      ctx.lineWidth = 1;
+      for (var v = -half + 24; v < half; v += 30) {
+        ctx.beginPath(); ctx.moveTo(v, 0); ctx.lineTo(v + 12, -HALF_THICK - 3); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(v, 0); ctx.lineTo(v + 12, HALF_THICK + 3); ctx.stroke();
+      }
+      ctx.restore();
+    }
+    function drawDrop(x, y, r) {
+      ctx.shadowColor = '#6EC1FF'; ctx.shadowBlur = 16;
+      var g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, 1, x, y, r);
+      g.addColorStop(0, 'rgba(255,255,255,.95)');
+      g.addColorStop(0.45, 'rgba(150,215,255,.85)');
+      g.addColorStop(1, 'rgba(70,150,230,.9)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, 6.28); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'rgba(255,255,255,.9)';
+      ctx.beginPath(); ctx.arc(x - r * 0.35, y - r * 0.35, r * 0.22, 0, 6.28); ctx.fill();
+    }
+    function draw() {
+      var g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, '#CDEBFF'); g.addColorStop(1, '#A8DCE8');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      // 水面波纹
+      ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 2;
+      for (var w = 0; w < 6; w++) {
+        ctx.beginPath();
+        ctx.ellipse(CX, H - 30 + w * 4, 120 + w * 30, 12 + w * 3, 0, 0, 6.28);
+        ctx.stroke();
+      }
+      drawLeaf();
+      // 端点
+      var left = dropPos(-half);
+      // 左端提示（危险）
+      ctx.fillStyle = 'rgba(255,90,90,.7)'; ctx.font = '22px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('⚠️', left.x, left.y + 8);
+      // 右端水潭
+      var right = dropPos(half);
+      var open = collected >= need;
+      ctx.shadowColor = open ? '#3A9BE0' : 'rgba(120,140,160,.5)';
+      ctx.shadowBlur = open ? 26 : 8;
+      ctx.fillStyle = open ? '#4FB0F0' : 'rgba(150,165,180,.7)';
+      ctx.beginPath(); ctx.ellipse(right.x + 14, right.y + 6, 24, 15, 0, 0, 6.28); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.font = '20px sans-serif'; ctx.fillText(open ? '💧' : '🔒', right.x + 14, right.y + 4);
+      // 小露珠
+      for (var i = 0; i < drops.length; i++) {
+        if (drops[i].got) continue;
+        var p = dropPos(drops[i].s);
+        var bob = Math.sin(time * 3 + drops[i].ph) * 3;
+        drawDrop(p.x, p.y + bob, 10);
+      }
+      // 主露珠
+      var dp = dropPos(dropS);
+      drawDrop(dp.x, dp.y, DROP_R);
+      // 倾斜方向箭头提示
+      ctx.fillStyle = 'rgba(46,74,125,.65)'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'left';
+      ctx.fillText('上下滑动 → 倾斜荷叶', 14, 26);
+      if (msgLife > 0 && msg) {
+        ctx.globalAlpha = Math.min(1, msgLife);
+        ctx.fillStyle = 'rgba(255,255,255,.92)';
+        A.roundRectPath(ctx, CX - 130, 40, 260, 34, 12); ctx.fill();
+        ctx.fillStyle = '#2E4A7D'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(msg, CX, 62);
+        ctx.globalAlpha = 1;
+      }
+      particles.draw(ctx); floaters.draw(ctx);
+    }
+
+    function loop(ts) {
+      var dt = Math.min((ts - lastTs) / 1000 || 0, 0.033);
+      lastTs = ts; time += dt;
+      if (running && !over) update(dt);
+      particles.update(dt); floaters.update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+    function pointer(e) {
+      var rect = cv.getBoundingClientRect();
+      return { x: (e.clientX - rect.left) / rect.width * W, y: (e.clientY - rect.top) / rect.height * H };
+    }
+    function aim(e) {
+      var p = pointer(e);
+      targetAngle = A.clamp((p.y - CY) / 170, -0.55, 0.55);
+    }
+    box.addEventListener('pointerdown', function (e) { e.preventDefault(); aim(e); });
+    box.addEventListener('pointermove', function (e) { if (e.buttons || e.pointerType === 'touch') aim(e); });
+    $('startBtn').addEventListener('click', start);
+    $('againBtn').addEventListener('click', function () { resetAll(); start(); });
+    $('retryBtn').addEventListener('click', function () { if (!over) loadLevel(levelIdx); });
+    $('muteBtn').addEventListener('click', function () {
+      var m = !A.isMuted(); A.setMuted(m); $('muteBtn').textContent = m ? '🔇 音效关' : '🔊 音效开';
+    });
+
+    resetAll();
+    requestAnimationFrame(function (t) { lastTs = t; loop(t); });
+  })();
+  </script>
+</body>
+</html>

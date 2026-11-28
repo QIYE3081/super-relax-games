@@ -27,11 +27,11 @@
     <section class="intro">
       <span class="eyebrow">RELAX & PLAY</span>
       <h2>忙完了？<em>挑一个</em>，放松一下吧</h2>
-      <p>18 款精心挑选的小游戏，点开就能玩，不下载、不注册、免费畅玩。</p>
+      <p>28 款精心挑选的小游戏，点开就能玩，不下载、不注册、免费畅玩。</p>
     </section>
 
     <div class="stats-bar">
-      <div class="stat-item"><div class="num" id="statGames">18</div><div class="lab">款游戏</div></div>
+      <div class="stat-item"><div class="num" id="statGames">28</div><div class="lab">款游戏</div></div>
       <div class="stat-sep"></div>
       <div class="stat-item"><div class="num">0</div><div class="lab">元费用</div></div>
       <div class="stat-sep"></div>
@@ -39,10 +39,11 @@
     </div>
 
     <div class="filter-bar" id="filterBar">
-      <button class="filter-btn active" data-cat="all">全部 <span class="cnt">18</span></button>
-      <button class="filter-btn" data-cat="wash">洗护解压 <span class="cnt">3</span></button>
-      <button class="filter-btn" data-cat="hit">人气爆款 <span class="cnt">5</span></button>
+      <button class="filter-btn active" data-cat="all">全部 <span class="cnt">28</span></button>
+      <button class="filter-btn" data-cat="orig">✨ 原创力作 <span class="cnt">10</span></button>
       <button class="filter-btn" data-cat="new">创意新游 <span class="cnt">10</span></button>
+      <button class="filter-btn" data-cat="hit">人气爆款 <span class="cnt">5</span></button>
+      <button class="filter-btn" data-cat="wash">洗护解压 <span class="cnt">3</span></button>
     </div>
 
     <div class="games-grid" id="gamesGrid">
@@ -71,14 +72,17 @@
     (function () {
       var grid = document.getElementById('gamesGrid');
       var games = window.GAME_REGISTRY || [];
+      var ORIG = ['color-awaken','echo-valley','water-drop','breath-bubble','star-web','gear-beauty','seed-diary','hand-shadow','snow-guardian','chameleon-master'];
       var WASH = ['wash-pig', 'wash-car', 'wash-carpet'];
       var HIT = ['jump', 'suika', 'match3', 'snake', 'breakout'];
       function catOf(id) {
+        if (ORIG.indexOf(id) >= 0) return 'orig';
         if (WASH.indexOf(id) >= 0) return 'wash';
         if (HIT.indexOf(id) >= 0) return 'hit';
         return 'new';
       }
       function badgeOf(g, cat) {
+        if (cat === 'orig') return '<span class="card-badge hot">原创</span>';
         if (cat === 'new') return '<span class="card-badge">NEW</span>';
         if (cat === 'hit') return '<span class="card-badge hot">HOT</span>';
         return '<span class="card-badge classic">经典</span>';

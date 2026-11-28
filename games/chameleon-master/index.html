@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>变色龙大师 - 洪哥做的好耍小游戏</title>
+  <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body class="game-page">
+  <div data-ad-slot="banner-top" class="ad-slot-wrap"></div>
+  <div class="game-topbar">
+    <a class="back-btn" href="../../index.html">← 返回游戏大厅</a>
+    <div class="game-title">🦎 变色龙大师</div>
+  </div>
+
+  <div class="arcade-wrap">
+    <div class="arcade-hud">
+      <div class="arcade-stat"><span class="lbl">得分</span><span class="val" id="score">0</span></div>
+      <div class="arcade-stat combo"><span class="lbl">连击</span><span class="val" id="combo">0</span></div>
+      <div class="arcade-stat hi"><span class="lbl">危险</span><span class="val" id="danger">0/3</span></div>
+    </div>
+
+    <div class="arcade-canvas-box" id="box">
+      <canvas id="cv"></canvas>
+      <div class="arcade-overlay show" id="startOv">
+        <div class="arcade-panel">
+          <div class="p-emoji">🦎</div>
+          <h2>变色龙大师</h2>
+          <p class="p-sub">背景颜色不断变化，天敌小鸟正在逼近！快速点击下方和当前背景一样的色块，让变色龙变成同色躲过搜捕。变对得分加连击，变错或太慢，小鸟就靠近一步。被抓 3 次就结束！</p>
+          <button class="arcade-btn primary big" id="startBtn">开始挑战</button>
+        </div>
+      </div>
+      <div class="arcade-overlay" id="endOv">
+        <div class="arcade-panel">
+          <div class="p-emoji">🦎</div>
+          <h2>被抓到啦！</h2>
+          <div class="p-score">得分 <b id="finalScore">0</b></div>
+          <div id="newBest" class="p-new" style="display:none">🎉 新纪录！</div>
+          <button class="arcade-btn primary big" id="againBtn">再挑战</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="arcade-controls">
+      <button class="arcade-btn" id="muteBtn">🔊 音效开</button>
+    </div>
+    <p class="arcade-tip">看背景当前的颜色，点下方相同色块给变色龙变色。连对连击加分，越快分越高。小鸟逼近时别慌，颜色对了它就找不到你。</p>
+  </div>
+
+  <div data-ad-slot="banner-bottom" class="ad-slot-wrap"></div>
+
+  <script src="../../js/ads.js"></script>
+  <script src="../../js/arcade-kit.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var A = window.Arcade;
+    var W = 480, H = 560;
+    var cv = document.getElementById('cv');
+    var ctx = A.fitCanvas(cv, W, H);
+    var box = document.getElementById('box');
+    var $ = function (id) { return document.getElementById(id); };
+
+    var COLORS = [
+      { name: '珊瑚', c: '#FF6B6B' },
+      { name: '天空', c: '#4DA8FF' },
+      { name: '青草', c: '#5FD8A4' },
+      { name: '葡萄', c: '#B77BFF' },
+      { name: '暖橙', c: '#FF9E4A' },
+      { name: '玫红', c: '#FF6FA8' }
+    ];
+    var PAL_Y = H - 54, PAL_R = 24, GAP = 74, X0 = W / 2 - GAP * 2.5;
+
+    var targetIdx, chameleonIdx, score, combo, danger, roundTimer, roundLimit,
+        birdX, birdProgress, running, over, particles, floaters, lastTs, time,
+        best, flash, shakeAmt, caughtAnim;
+
+    function resetAll() {
+      targetIdx = A.randInt(0, COLORS.length - 1);
+      chameleonIdx = (targetIdx + A.randInt(1, COLORS.length - 1)) % COLORS.length;
+      score = 0; combo = 0; danger = 0; roundTimer = 0; roundLimit = 2.2;
+      birdProgress = 0.15; running = false; over = false; time = 0;
+      flash = 0; shakeAmt = 0; caughtAnim = 0;
+      particles = new A.Particles(); floaters = new A.Floaters();
+      updateHud();
+      $('endOv').classList.remove('show');
+      $('startOv').classList.add('show');
+    }
+    function start() {
+      $('startOv').classList.remove('show');
+      running = true; lastTs = performance.now();
+    }
+    function updateHud() {
+      $('score').textContent = score;
+      $('combo').textContent = combo;
+      $('danger').textContent = danger + '/3';
+    }
+
+    function newRound() {
+      targetIdx = A.randInt(0, COLORS.length - 1);
+      roundLimit = Math.max(0.85, 2.2 - score * 0.006); // 越玩越快
+      roundTimer = roundLimit;
+    }
+    function choose(idx) {
+      if (!running || over) return;
+      if (idx === targetIdx) {
+        combo++;
+        var speedBonus = Math.floor(roundTimer / roundLimit * 30);
+        var pts = 10 + combo * 2 + speedBonus;
+        score += pts;
+        chameleonIdx = idx;
+        birdProgress = Math.max(0.08, birdProgress - 0.12);
+        flash = 0.35;
+        particles.burst(W / 2, 300, { count: 14, colors: [COLORS[idx].c, '#FFFFFF'], speedMax: 180, lifeMax: 0.7, gravity: 40 });
+        floaters.add(W / 2, 250, '+' + pts, COLORS[idx].c, 20);
+        A.SFX.score(); A.vibrate(10);
+        newRound();
+      } else {
+        combo = 0;
+        chameleonIdx = idx;
+        birdProgress += 0.18;
+        shakeAmt = 0.4;
+        A.SFX.fail(); A.vibrate(20);
+        floaters.add(W / 2, 250, '颜色不对！', '#FF5B7C', 18);
+        checkCaught();
+      }
+      updateHud();
+    }
+    function checkCaught() {
+      if (birdProgress >= 1) {
+        danger++; updateHud();
+        birdProgress = 0.2; caughtAnim = 0.7;
+        A.SFX.fail(); A.vibrate(35);
+        if (danger >= 3) gameOver();
+      }
+    }
+    function gameOver() {
+      over = true; running = false;
+      var isNew = score > best;
+      if (isNew) { best = score; A.Best.set('chameleonmaster', best); }
+      $('finalScore').textContent = score;
+      $('newBest').style.display = isNew ? 'inline-block' : 'none';
+      $('endOv').classList.add('show');
+    }
+
+    function drawChameleon() {
+      var x = W / 2, y = 300;
+      var col = COLORS[chameleonIdx].c;
+      ctx.save();
+      ctx.translate(x, y);
+      // 尾巴（卷曲）
+      ctx.strokeStyle = A.shade(col, -0.15); ctx.lineWidth = 14; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(20, 10); ctx.quadraticCurveTo(70, 20, 66, -22); ctx.quadraticCurveTo(64, -44, 46, -36); ctx.stroke();
+      // 身体
+      ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 18;
+      ctx.beginPath(); ctx.ellipse(0, 0, 46, 30, 0, 0, 6.28); ctx.fill();
+      // 头
+      ctx.beginPath(); ctx.ellipse(-40, -8, 24, 22, 0, 0, 6.28); ctx.fill();
+      ctx.shadowBlur = 0;
+      // 背刺
+      ctx.fillStyle = A.shade(col, -0.25);
+      for (var t = 0; t < 5; t++) {
+        ctx.beginPath(); ctx.moveTo(-20 + t * 18, -26); ctx.lineTo(-14 + t * 18, -40); ctx.lineTo(-8 + t * 18, -26); ctx.closePath(); ctx.fill();
+      }
+      // 眼睛（转动）
+      var eyeLook = Math.sin(time * 2) * 3;
+      ctx.fillStyle = '#FFF'; ctx.beginPath(); ctx.arc(-48, -12, 9, 0, 6.28); ctx.fill();
+      ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(-48 + eyeLook, -12, 4, 0, 6.28); ctx.fill();
+      // 腿
+      ctx.strokeStyle = A.shade(col, -0.2); ctx.lineWidth = 9;
+      ctx.beginPath(); ctx.moveTo(-14, 26); ctx.lineTo(-18, 46); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(20, 26); ctx.lineTo(24, 46); ctx.stroke();
+      ctx.restore();
+      ctx.lineCap = 'butt';
+    }
+    function drawBird() {
+      var bx = 40 + birdProgress * 150;
+      var by = 120 + Math.sin(time * 4) * 8;
+      ctx.save(); ctx.translate(bx, by);
+      ctx.fillStyle = '#2E3A5A'; ctx.shadowColor = 'rgba(0,0,0,.3)'; ctx.shadowBlur = 10;
+      ctx.font = '46px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.rotate(-0.15);
+      ctx.fillText('🦅', 0, 0);
+      ctx.restore(); ctx.shadowBlur = 0; ctx.textBaseline = 'alphabetic';
+      // 视线
+      ctx.strokeStyle = 'rgba(46,58,90,.35)'; ctx.lineWidth = 2; ctx.setLineDash([4, 5]);
+      ctx.beginPath(); ctx.moveTo(bx + 20, by + 4); ctx.lineTo(W / 2 - 40, 300 - 8); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    function draw() {
+      // 背景 = 当前目标色（柔和渐变）
+      var c = COLORS[targetIdx].c;
+      var g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, A.shade(c, 0.45)); g.addColorStop(1, A.shade(c, -0.1));
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      // 背景装饰圆
+      ctx.fillStyle = 'rgba(255,255,255,.12)';
+      for (var i = 0; i < 6; i++) {
+        ctx.beginPath(); ctx.arc((i * 97) % W, (i * 131) % 400, 30 + (i % 3) * 18, 0, 6.28); ctx.fill();
+      }
+      // 树枝
+      ctx.strokeStyle = 'rgba(90,70,50,.5)'; ctx.lineWidth = 12; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(-10, 348); ctx.lineTo(W + 10, 340); ctx.stroke(); ctx.lineCap = 'butt';
+      drawBird();
+      drawChameleon();
+      // 提示：背景色名
+      ctx.fillStyle = 'rgba(255,255,255,.9)';
+      A.roundRectPath(ctx, W / 2 - 90, 20, 180, 34, 12); ctx.fill();
+      ctx.fillStyle = '#2E4A7D'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('背景：' + COLORS[targetIdx].name, W / 2, 42);
+      // 倒计时条
+      if (running && !over) {
+        ctx.fillStyle = 'rgba(255,255,255,.45)'; A.roundRectPath(ctx, 60, 62, W - 120, 8, 4); ctx.fill();
+        ctx.fillStyle = (roundTimer / roundLimit < 0.35) ? '#FF5B7C' : '#FFFFFF';
+        A.roundRectPath(ctx, 60, 62, (W - 120) * A.clamp(roundTimer / roundLimit, 0, 1), 8, 4); ctx.fill();
+      }
+      // 调色盘
+      ctx.fillStyle = 'rgba(20,28,50,.28)';
+      A.roundRectPath(ctx, 8, PAL_Y - 22, W - 16, 64, 16); ctx.fill();
+      for (var p = 0; p < COLORS.length; p++) {
+        var px = X0 + p * GAP, py = PAL_Y + 6;
+        if (p === chameleonIdx) { ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(px, py, PAL_R + 5, 0, 6.28); ctx.stroke(); }
+        ctx.fillStyle = COLORS[p].c; ctx.shadowColor = COLORS[p].c; ctx.shadowBlur = 8;
+        ctx.beginPath(); ctx.arc(px, py, PAL_R, 0, 6.28); ctx.fill(); ctx.shadowBlur = 0;
+      }
+      if (flash > 0) { ctx.fillStyle = 'rgba(255,255,255,' + (flash * 0.5) + ')'; ctx.fillRect(0, 0, W, H); flash -= 0.02; }
+      if (caughtAnim > 0) {
+        ctx.fillStyle = 'rgba(255,60,60,' + (caughtAnim * 0.4) + ')'; ctx.fillRect(0, 0, W, H); caughtAnim -= 0.02;
+      }
+      ctx.save();
+      if (shakeAmt > 0) { ctx.translate(Math.sin(time * 60) * shakeAmt * 12, 0); shakeAmt -= 0.02; }
+      particles.draw(ctx); floaters.draw(ctx);
+      ctx.restore();
+    }
+
+    function loop(ts) {
+      var dt = Math.min((ts - lastTs) / 1000 || 0, 0.033);
+      lastTs = ts; time += dt;
+      if (running && !over) {
+        roundTimer -= dt;
+        birdProgress += dt * (0.028 + score * 0.00012);
+        if (roundTimer <= 0) {
+          combo = 0; birdProgress += 0.12;
+          A.SFX.fail();
+          floaters.add(W / 2, 250, '太慢了！', '#FF5B7C', 18);
+          checkCaught(); updateHud();
+          newRound();
+        }
+      }
+      particles.update(dt); floaters.update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+    function pointer(e) {
+      var rect = cv.getBoundingClientRect();
+      return { x: (e.clientX - rect.left) / rect.width * W, y: (e.clientY - rect.top) / rect.height * H };
+    }
+    box.addEventListener('pointerdown', function (e) {
+      e.preventDefault(); if (!running || over) return;
+      var p = pointer(e);
+      for (var i = 0; i < COLORS.length; i++) {
+        var px = X0 + i * GAP, py = PAL_Y + 6;
+        if (Math.hypot(p.x - px, p.y - py) < PAL_R + 10) { choose(i); return; }
+      }
+    });
+    $('startBtn').addEventListener('click', start);
+    $('againBtn').addEventListener('click', function () { resetAll(); start(); });
+    $('muteBtn').addEventListener('click', function () {
+      var m = !A.isMuted(); A.setMuted(m); $('muteBtn').textContent = m ? '🔇 音效关' : '🔊 音效开';
+    });
+
+    best = A.Best.get('chameleonmaster');
+    resetAll();
+    requestAnimationFrame(function (t) { lastTs = t; loop(t); });
+  })();
+  </script>
+</body>
+</html>

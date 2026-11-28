@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>种子日记 - 洪哥做的好耍小游戏</title>
+  <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body class="game-page">
+  <div data-ad-slot="banner-top" class="ad-slot-wrap"></div>
+  <div class="game-topbar">
+    <a class="back-btn" href="../../index.html">← 返回游戏大厅</a>
+    <div class="game-title">🌱 种子日记</div>
+  </div>
+
+  <div class="arcade-wrap">
+    <div class="arcade-hud">
+      <div class="arcade-stat"><span class="lbl">花种</span><span class="val" id="level">1/3</span></div>
+      <div class="arcade-stat combo"><span class="lbl">成长</span><span class="val" id="growth">0%</span></div>
+      <div class="arcade-stat hi"><span class="lbl">状态</span><span class="val" id="mood">种子</span></div>
+    </div>
+
+    <div class="arcade-canvas-box" id="box">
+      <canvas id="cv"></canvas>
+      <div class="arcade-overlay show" id="startOv">
+        <div class="arcade-panel">
+          <div class="p-emoji">🌱</div>
+          <h2>种子日记</h2>
+          <p class="p-sub">种下一颗种子，看它慢慢长大。看它头顶的提示，按顺序给它阳光、清水和肥料；飞来的小虫子要及时赶走。耐心照顾，最后会开出美丽的花。</p>
+          <button class="arcade-btn primary big" id="startBtn">种下种子</button>
+        </div>
+      </div>
+      <div class="arcade-overlay" id="endOv">
+        <div class="arcade-panel">
+          <div class="p-emoji" id="endEmoji">🌸</div>
+          <h2>开花啦！</h2>
+          <div class="p-sub" id="endDesc">你的耐心照顾，换来了一朵漂亮的花。</div>
+          <button class="arcade-btn primary big" id="againBtn">再种一朵</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="arcade-controls">
+      <button class="arcade-btn" id="sunBtn">☀️ 阳光</button>
+      <button class="arcade-btn" id="waterBtn">💧 浇水</button>
+      <button class="arcade-btn" id="fertBtn">🌿 施肥</button>
+    </div>
+    <div class="arcade-controls" style="margin-top:8px">
+      <button class="arcade-btn" id="muteBtn">🔊 音效开</button>
+    </div>
+    <p class="arcade-tip">看画面里的提示，给对应的照顾。小虫子出现时点它赶走。成长到 100% 就开花啦。</p>
+  </div>
+
+  <div data-ad-slot="banner-bottom" class="ad-slot-wrap"></div>
+
+  <script src="../../js/ads.js"></script>
+  <script src="../../js/arcade-kit.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var A = window.Arcade;
+    var W = 480, H = 560;
+    var cv = document.getElementById('cv');
+    var ctx = A.fitCanvas(cv, W, H);
+    var box = document.getElementById('box');
+    var $ = function (id) { return document.getElementById(id); };
+
+    var FLOWERS = [
+      { name: '向日葵', petal: '#FFD23F', center: '#8A5A2B', emoji: '🌻', need: ['sun', 'water', 'fert', 'sun', 'water'] },
+      { name: '桃花', petal: '#FF9DBB', center: '#FFD86B', emoji: '🌸', need: ['water', 'sun', 'fert', 'water', 'sun'] },
+      { name: '风铃草', petal: '#A98BFF', center: '#FFE066', emoji: '🪻', need: ['fert', 'water', 'sun', 'fert', 'water', 'sun'] }
+    ];
+    var LABEL = { sun: '☀️ 阳光', water: '💧 清水', fert: '🌿 肥料' };
+
+    var levelIdx, flower, needIdx, growth, stage, bug, bugTimer, running, over,
+        particles, floaters, lastTs, time, sway, pop, wrongShake;
+
+    function stageName(g) {
+      if (g < 15) return '种子';
+      if (g < 40) return '发芽';
+      if (g < 65) return '幼苗';
+      if (g < 90) return '花苞';
+      return '绽放';
+    }
+    function loadLevel(i) {
+      levelIdx = i;
+      flower = FLOWERS[i]; needIdx = 0; growth = 0; stage = 0;
+      bug = null; bugTimer = A.rand(6, 9); pop = 0; wrongShake = 0;
+      particles = new A.Particles(); floaters = new A.Floaters();
+      $('level').textContent = (i + 1) + '/' + FLOWERS.length;
+      updateHud();
+    }
+    function resetAll() {
+      over = false; running = false; time = 0; sway = 0;
+      loadLevel(0);
+      $('endOv').classList.remove('show');
+      $('startOv').classList.add('show');
+    }
+    function start() {
+      $('startOv').classList.remove('show');
+      running = true; lastTs = performance.now();
+    }
+    function updateHud() {
+      $('growth').textContent = Math.floor(growth) + '%';
+      $('mood').textContent = stageName(growth);
+    }
+
+    function care(action) {
+      if (!running || over) return;
+      var need = flower.need[needIdx];
+      if (action === need) {
+        needIdx++;
+        growth = Math.min(100, (needIdx / flower.need.length) * 100);
+        pop = 1;
+        A.SFX.merge(needIdx); A.vibrate(12);
+        var col = action === 'sun' ? '#FFD86B' : (action === 'water' ? '#6EC1FF' : '#5FD8A4');
+        particles.burst(W / 2, 380, { count: 14, colors: [col, '#FFFFFF'], speedMax: 150, lifeMax: 0.9, gravity: action === 'sun' ? -30 : 120 });
+        floaters.add(W / 2, 350, '+ 成长', col, 18);
+        updateHud();
+        if (needIdx >= flower.need.length) winGame();
+      } else {
+        growth = Math.max(0, growth - 4);
+        wrongShake = 0.4;
+        A.SFX.fail();
+        floaters.add(W / 2, 350, '它现在不需要这个', '#FF7B9C', 15);
+        updateHud();
+      }
+    }
+
+    function spawnBug() {
+      bug = { x: A.rand(80, W - 80), y: A.rand(180, 340), life: 3.2, ph: A.rand(0, 6.28) };
+      floaters.add(W / 2, 130, '虫子来了！点它赶走', '#FF7B9C', 16);
+      A.SFX.fail();
+    }
+    function hitBug() {
+      if (!bug) return;
+      particles.burst(bug.x, bug.y, { count: 14, colors: ['#8A6B4B', '#FFFFFF'], speedMax: 160, lifeMax: 0.7, gravity: 200 });
+      floaters.add(bug.x, bug.y - 16, '赶走啦', '#5FD8A4', 16);
+      A.SFX.score(); A.vibrate(12);
+      bug = null; bugTimer = A.rand(7, 10);
+    }
+    function winGame() {
+      over = true; running = false;
+      A.SFX.win(); A.vibrate(35);
+      for (var i = 0; i < 4; i++) particles.burst(A.rand(120, W - 120), A.rand(120, 340), {
+        count: 16, colors: [flower.petal, '#FFD86B', '#FFFFFF'], speedMax: 240, lifeMax: 1.3, gravity: 60
+      });
+      $('endEmoji').textContent = flower.emoji;
+      $('endDesc').textContent = '一朵漂亮的' + flower.name + '开了，这是你耐心照顾的收获。';
+      $('endOv').classList.add('show');
+    }
+
+    function drawPlant() {
+      var g = growth / 100;
+      var baseX = W / 2, baseY = 430;
+      ctx.save();
+      if (wrongShake > 0) ctx.translate(Math.sin(time * 50) * wrongShake * 10, 0);
+      // 土壤
+      ctx.fillStyle = '#8B6B4E';
+      ctx.beginPath(); ctx.ellipse(baseX, baseY + 10, 100, 26, 0, 0, 6.28); ctx.fill();
+      ctx.fillStyle = '#A07B59';
+      ctx.beginPath(); ctx.ellipse(baseX, baseY + 4, 100, 20, 0, 0, 6.28); ctx.fill();
+      // 茎
+      if (g > 0.12) {
+        var stemH = (g - 0.1) * 220;
+        ctx.strokeStyle = '#4FA86B'; ctx.lineWidth = 8; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(baseX, baseY);
+        ctx.quadraticCurveTo(baseX + Math.sin(sway) * 12, baseY - stemH / 2, baseX + Math.sin(sway) * 18, baseY - stemH);
+        ctx.stroke();
+        // 叶
+        if (g > 0.35) {
+          ctx.fillStyle = '#63C07E';
+          ctx.beginPath(); ctx.ellipse(baseX - 26, baseY - stemH * 0.5, 30, 14, -0.5, 0, 6.28); ctx.fill();
+          ctx.beginPath(); ctx.ellipse(baseX + 28, baseY - stemH * 0.68, 30, 14, 0.5, 0, 6.28); ctx.fill();
+        }
+        // 花
+        if (g >= 0.9) {
+          var fx = baseX + Math.sin(sway) * 18, fy = baseY - stemH;
+          var bloom = (g - 0.9) / 0.1;
+          ctx.save(); ctx.translate(fx, fy);
+          ctx.shadowColor = flower.petal; ctx.shadowBlur = 18;
+          for (var p = 0; p < 8; p++) {
+            var a = p / 8 * 6.28;
+            ctx.fillStyle = flower.petal;
+            ctx.beginPath(); ctx.ellipse(Math.cos(a) * 26 * bloom, Math.sin(a) * 26 * bloom, 18 * bloom, 12 * bloom, a, 0, 6.28); ctx.fill();
+          }
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = flower.center;
+          ctx.beginPath(); ctx.arc(0, 0, 16 * bloom, 0, 6.28); ctx.fill();
+          ctx.restore();
+        } else if (g > 0.65) {
+          // 花苞
+          var bx = baseX + Math.sin(sway) * 18, by = baseY - (g - 0.1) * 220;
+          ctx.fillStyle = flower.petal;
+          ctx.beginPath(); ctx.ellipse(bx, by, 14, 20, 0, 0, 6.28); ctx.fill();
+          ctx.fillStyle = '#4FA86B';
+          ctx.beginPath(); ctx.ellipse(bx, by + 14, 16, 8, 0, 0, 6.28); ctx.fill();
+        }
+      } else {
+        // 种子
+        ctx.fillStyle = '#7A5A3B';
+        ctx.beginPath(); ctx.ellipse(baseX, baseY - 4, 12, 16, 0.3, 0, 6.28); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,.4)';
+        ctx.beginPath(); ctx.ellipse(baseX - 4, baseY - 10, 4, 6, 0.3, 0, 6.28); ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function draw() {
+      var sky = ctx.createLinearGradient(0, 0, 0, H);
+      sky.addColorStop(0, '#DFF3FF'); sky.addColorStop(0.65, '#EAF8E4'); sky.addColorStop(1, '#F7F0DC');
+      ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+      // 太阳
+      ctx.fillStyle = '#FFD86B'; ctx.shadowColor = '#FFD86B'; ctx.shadowBlur = 24;
+      ctx.beginPath(); ctx.arc(70, 70, 28, 0, 6.28); ctx.fill(); ctx.shadowBlur = 0;
+      for (var s = 0; s < 8; s++) {
+        var a = s / 8 * 6.28;
+        ctx.strokeStyle = '#FFD86B'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(70 + Math.cos(a) * 34, 70 + Math.sin(a) * 34);
+        ctx.lineTo(70 + Math.cos(a) * 44, 70 + Math.sin(a) * 44); ctx.stroke();
+      }
+      // 云
+      ctx.fillStyle = 'rgba(255,255,255,.75)';
+      ctx.beginPath(); ctx.ellipse(360, 90, 44, 18, 0, 0, 6.28); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(388, 82, 30, 15, 0, 0, 6.28); ctx.fill();
+      // 当前需求提示
+      if (!over && running) {
+        var need = flower.need[needIdx];
+        ctx.fillStyle = 'rgba(255,255,255,.92)';
+        A.roundRectPath(ctx, W / 2 - 108, 130, 216, 44, 14); ctx.fill();
+        ctx.fillStyle = '#2E4A7D'; ctx.font = 'bold 15px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('现在需要：' + LABEL[need], W / 2, 152);
+        ctx.textBaseline = 'alphabetic';
+      }
+      // 成长进度条
+      ctx.fillStyle = 'rgba(255,255,255,.7)';
+      A.roundRectPath(ctx, 40, 470, W - 80, 12, 6); ctx.fill();
+      ctx.fillStyle = '#5FD8A4';
+      A.roundRectPath(ctx, 40, 470, (W - 80) * growth / 100, 12, 6); ctx.fill();
+
+      drawPlant();
+      // 虫子
+      if (bug) {
+        var by = bug.y + Math.sin(time * 5 + bug.ph) * 10;
+        ctx.fillStyle = '#8A6B4B'; ctx.font = '34px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('🐛', bug.x, by);
+        ctx.textBaseline = 'alphabetic';
+      }
+      if (pop > 0) { ctx.fillStyle = 'rgba(255,216,107,' + (pop * 0.25) + ')'; ctx.fillRect(0, 0, W, H); pop -= 0.03; }
+      particles.draw(ctx); floaters.draw(ctx);
+    }
+
+    function loop(ts) {
+      var dt = Math.min((ts - lastTs) / 1000 || 0, 0.033);
+      lastTs = ts; time += dt;
+      if (running) {
+        sway += dt * 1.5;
+        if (wrongShake > 0) wrongShake -= dt;
+        if (bug) {
+          bug.life -= dt;
+          if (bug.life <= 0) { growth = Math.max(0, growth - 8); updateHud(); bug = null; bugTimer = A.rand(7, 10); A.SFX.fail(); floaters.add(W / 2, 350, '被虫子偷吃了 -8%', '#FF7B9C', 15); }
+        } else if (!over) {
+          bugTimer -= dt;
+          if (bugTimer <= 0 && growth < 100) spawnBug();
+        }
+      }
+      particles.update(dt); floaters.update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+    function pointer(e) {
+      var rect = cv.getBoundingClientRect();
+      return { x: (e.clientX - rect.left) / rect.width * W, y: (e.clientY - rect.top) / rect.height * H };
+    }
+    box.addEventListener('pointerdown', function (e) {
+      e.preventDefault(); if (!running || over || !bug) return;
+      var p = pointer(e);
+      if (Math.hypot(p.x - bug.x, p.y - bug.y) < 34) hitBug();
+    });
+    $('startBtn').addEventListener('click', start);
+    $('sunBtn').addEventListener('click', function () { care('sun'); });
+    $('waterBtn').addEventListener('click', function () { care('water'); });
+    $('fertBtn').addEventListener('click', function () { care('fert'); });
+    $('againBtn').addEventListener('click', function () { resetAll(); start(); });
+    $('muteBtn').addEventListener('click', function () {
+      var m = !A.isMuted(); A.setMuted(m); $('muteBtn').textContent = m ? '🔇 音效关' : '🔊 音效开';
+    });
+
+    resetAll();
+    requestAnimationFrame(function (t) { lastTs = t; loop(t); });
+  })();
+  </script>
+</body>
+</html>

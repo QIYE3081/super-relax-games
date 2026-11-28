@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>水滴旅行 - 洪哥做的好耍小游戏</title>
+  <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body class="game-page">
+  <div data-ad-slot="banner-top" class="ad-slot-wrap"></div>
+  <div class="game-topbar">
+    <a class="back-btn" href="../../index.html">← 返回游戏大厅</a>
+    <div class="game-title">💧 水滴旅行</div>
+  </div>
+
+  <div class="arcade-wrap">
+    <div class="arcade-hud">
+      <div class="arcade-stat"><span class="lbl">关卡</span><span class="val" id="level">1/3</span></div>
+      <div class="arcade-stat combo"><span class="lbl">露珠</span><span class="val" id="collect">0/3</span></div>
+      <div class="arcade-stat hi"><span class="lbl">机会</span><span class="val" id="lives">3</span></div>
+    </div>
+
+    <div class="arcade-canvas-box" id="box">
+      <canvas id="cv"></canvas>
+      <div class="arcade-overlay show" id="startOv">
+        <div class="arcade-panel">
+          <div class="p-emoji">💧</div>
+          <h2>水滴旅行</h2>
+          <p class="p-sub">一颗小露珠要顺着荷叶回家。手指在画面上上下移动，就能倾斜整片荷叶——露珠会受重力滚动。沿途收集够小露珠，右端的水潭才会打开，把露珠送进去就过关！别让它从左边滚下去。</p>
+          <button class="arcade-btn primary big" id="startBtn">开始旅行</button>
+        </div>
+      </div>
+      <div class="arcade-overlay" id="endOv">
+        <div class="arcade-panel">
+          <div class="p-emoji" id="endEmoji">🏠</div>
+          <h2 id="endTitle">送回家啦！</h2>
+          <div class="p-sub" id="endDesc">露珠平安回到了水潭。</div>
+          <button class="arcade-btn primary big" id="againBtn">再玩一次</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="arcade-controls">
+      <button class="arcade-btn" id="retryBtn">↻ 重来本关</button>
+      <button class="arcade-btn" id="muteBtn">🔊 音效开</button>
+    </div>
+    <p class="arcade-tip">手指在画面里上下滑动来倾斜荷叶。露珠会朝低的一边滚，先收集够小露珠，再把它送到右端发光的水潭。</p>
+  </div>
+
+  <div data-ad-slot="banner-bottom" class="ad-slot-wrap"></div>
+
+  <script src="../../js/ads.js"></script>
+  <script src="../../js/arcade-kit.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var A = window.Arcade;
+    var W = 480, H = 560;
+    var cv = document.getElementById('cv');
+    var ctx = A.fitCanvas(cv, W, H);
+    var box = document.getElementById('box');
+    var $ = function (id) { return document.getElementById(id); };
+    var CX = W / 2, CY = H / 2 + 30;
+    var DROP_R = 14, HALF_THICK = 9;
+
+    var LEVELS = [
+      { half: 168, need: 3, lives: 3, friction: 1.1, drops: [-110, -20, 90] },
+      { half: 186, need: 4, lives: 3, friction: 1.5, drops: [-140, -50, 40, 130] },
+      { half: 200, need: 5, lives: 4, friction: 1.9, drops: [-160, -90, -10, 80, 150] }
+    ];
+
+    var levelIdx, half, need, lives, friction, drops, angle, targetAngle, dropS, dropV, collected,
+        running, over, particles, floaters, lastTs, time, pointerY, msg, msgLife;
+
+    function loadLevel(i) {
+      levelIdx = i;
+      var L = LEVELS[i];
+      half = L.half; need = L.need; lives = L.lives; friction = L.friction;
+      drops = L.drops.map(function (s) { return { s: s, got: false, ph: A.rand(0, 6.28) }; });
+      angle = 0; targetAngle = 0; dropS = -half + 30; dropV = 0; collected = 0;
+      msg = ''; msgLife = 0;
+      particles = new A.Particles(); floaters = new A.Floaters();
+      $('level').textContent = (i + 1) + '/' + LEVELS.length;
+      updateHud();
+    }
+    function resetAll() {
+      over = false; running = false; time = 0; pointerY = null;
+      loadLevel(0);
+      $('endOv').classList.remove('show');
+      $('startOv').classList.add('show');
+    }
+    function start() {
+      $('startOv').classList.remove('show');
+      running = true; lastTs = performance.now();
+    }
+    function updateHud() {
+      $('collect').textContent = collected + '/' + need;
+      $('lives').textContent = lives;
+    }
+    function dropPos(s) {
+      var off = DROP_R + HALF_THICK;
+      return {
+        x: CX + Math.cos(angle) * s + Math.sin(angle) * off,
+        y: CY + Math.sin(angle) * s - Math.cos(angle) * off
+      };
+    }
+
+    function respawn() {
+      lives--; updateHud();
+      dropS = -half + 30; dropV = 0; angle = 0; targetAngle = 0;
+      A.SFX.fail(); A.vibrate(30);
+      if (lives <= 0) {
+        over = true; running = false;
+        $('endEmoji').textContent = '💧';
+        $('endTitle').textContent = '露珠溜走了…';
+        $('endDesc').textContent = '再试一次，用荷叶把露珠稳稳送到水潭吧！';
+        $('endOv').classList.add('show');
+      }
+    }
+    function winLevel() {
+      A.SFX.win(); A.vibrate(35);
+      var p = dropPos(half);
+      particles.burst(p.x, p.y, { count: 26, colors: ['#6EC1FF', '#DFF3FF', '#FFFFFF'], speedMax: 240, lifeMax: 1, gravity: 120 });
+      if (levelIdx < LEVELS.length - 1) {
+        msg = '送达！下一片荷叶～'; msgLife = 1.4;
+        setTimeout(function () { if (!over) loadLevel(levelIdx + 1); }, 1200);
+      } else {
+        over = true; running = false;
+        $('endEmoji').textContent = '🏠';
+        $('endTitle').textContent = '露珠回家啦！';
+        $('endDesc').textContent = '三片荷叶都顺利走过，露珠安全抵达水潭！';
+        $('endOv').classList.add('show');
+      }
+    }
+
+    function update(dt) {
+      // 平滑倾斜
+      angle += (targetAngle - angle) * Math.min(1, dt * 9);
+      // 露珠沿板滚动：切向加速度 = g*sin(angle)
+      var G = 900;
+      dropV += G * Math.sin(angle) * dt;
+      dropV -= dropV * friction * dt;
+      dropS += dropV * dt;
+      // 收集小露珠
+      for (var i = 0; i < drops.length; i++) {
+        var d = drops[i];
+        if (!d.got && Math.abs(dropS - d.s) < 16) {
+          d.got = true; collected++; updateHud();
+          var dp = dropPos(d.s);
+          particles.burst(dp.x, dp.y, { count: 10, colors: ['#6EC1FF', '#FFFFFF'], speedMax: 120, lifeMax: 0.6, gravity: 100 });
+          floaters.add(dp.x, dp.y - 20, '+1', '#6EC1FF', 18);
+          A.SFX.eat(); A.vibrate(8);
+        }
+      }
+      // 左端掉出
+      if (dropS < -half - 8) { respawn(); return; }
+      // 右端
+      if (dropS > half) {
+        if (collected >= need) { winLevel(); return; }
+        else {
+          dropS = half; dropV = -Math.abs(dropV) * 0.5 - 60;
+          if (msgLife <= 0) { msg = '还差 ' + (need - collected) + ' 颗露珠，水潭还没开'; msgLife = 1.4; }
+          A.SFX.tap();
+        }
+      }
+      if (msgLife > 0) msgLife -= dt;
+    }
+
+    function drawLeaf() {
+      ctx.save();
+      ctx.translate(CX, CY);
+      ctx.rotate(angle);
+      // 叶片主体
+      ctx.fillStyle = '#4FA86B';
+      ctx.shadowColor = 'rgba(20,60,40,.35)'; ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, half + 16, HALF_THICK + 8, 0, 0, 6.28);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#63C07E';
+      ctx.beginPath();
+      ctx.ellipse(0, -2, half + 10, HALF_THICK + 3, 0, 0, 6.28);
+      ctx.fill();
+      // 叶脉
+      ctx.strokeStyle = 'rgba(230,255,235,.45)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(-half, 0); ctx.lineTo(half, 0); ctx.stroke();
+      ctx.lineWidth = 1;
+      for (var v = -half + 24; v < half; v += 30) {
+        ctx.beginPath(); ctx.moveTo(v, 0); ctx.lineTo(v + 12, -HALF_THICK - 3); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(v, 0); ctx.lineTo(v + 12, HALF_THICK + 3); ctx.stroke();
+      }
+      ctx.restore();
+    }
+    function drawDrop(x, y, r) {
+      ctx.shadowColor = '#6EC1FF'; ctx.shadowBlur = 16;
+      var g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, 1, x, y, r);
+      g.addColorStop(0, 'rgba(255,255,255,.95)');
+      g.addColorStop(0.45, 'rgba(150,215,255,.85)');
+      g.addColorStop(1, 'rgba(70,150,230,.9)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, 6.28); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'rgba(255,255,255,.9)';
+      ctx.beginPath(); ctx.arc(x - r * 0.35, y - r * 0.35, r * 0.22, 0, 6.28); ctx.fill();
+    }
+    function draw() {
+      var g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, '#CDEBFF'); g.addColorStop(1, '#A8DCE8');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      // 水面波纹
+      ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 2;
+      for (var w = 0; w < 6; w++) {
+        ctx.beginPath();
+        ctx.ellipse(CX, H - 30 + w * 4, 120 + w * 30, 12 + w * 3, 0, 0, 6.28);
+        ctx.stroke();
+      }
+      drawLeaf();
+      // 端点
+      var left = dropPos(-half);
+      // 左端提示（危险）
+      ctx.fillStyle = 'rgba(255,90,90,.7)'; ctx.font = '22px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('⚠️', left.x, left.y + 8);
+      // 右端水潭
+      var right = dropPos(half);
+      var open = collected >= need;
+      ctx.shadowColor = open ? '#3A9BE0' : 'rgba(120,140,160,.5)';
+      ctx.shadowBlur = open ? 26 : 8;
+      ctx.fillStyle = open ? '#4FB0F0' : 'rgba(150,165,180,.7)';
+      ctx.beginPath(); ctx.ellipse(right.x + 14, right.y + 6, 24, 15, 0, 0, 6.28); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.font = '20px sans-serif'; ctx.fillText(open ? '💧' : '🔒', right.x + 14, right.y + 4);
+      // 小露珠
+      for (var i = 0; i < drops.length; i++) {
+        if (drops[i].got) continue;
+        var p = dropPos(drops[i].s);
+        var bob = Math.sin(time * 3 + drops[i].ph) * 3;
+        drawDrop(p.x, p.y + bob, 10);
+      }
+      // 主露珠
+      var dp = dropPos(dropS);
+      drawDrop(dp.x, dp.y, DROP_R);
+      // 倾斜方向箭头提示
+      ctx.fillStyle = 'rgba(46,74,125,.65)'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'left';
+      ctx.fillText('上下滑动 → 倾斜荷叶', 14, 26);
+      if (msgLife > 0 && msg) {
+        ctx.globalAlpha = Math.min(1, msgLife);
+        ctx.fillStyle = 'rgba(255,255,255,.92)';
+        A.roundRectPath(ctx, CX - 130, 40, 260, 34, 12); ctx.fill();
+        ctx.fillStyle = '#2E4A7D'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillText(msg, CX, 62);
+        ctx.globalAlpha = 1;
+      }
+      particles.draw(ctx); floaters.draw(ctx);
+    }
+
+    function loop(ts) {
+      var dt = Math.min((ts - lastTs) / 1000 || 0, 0.033);
+      lastTs = ts; time += dt;
+      if (running && !over) update(dt);
+      particles.update(dt); floaters.update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+    function pointer(e) {
+      var rect = cv.getBoundingClientRect();
+      return { x: (e.clientX - rect.left) / rect.width * W, y: (e.clientY - rect.top) / rect.height * H };
+    }
+    function aim(e) {
+      var p = pointer(e);
+      targetAngle = A.clamp((p.y - CY) / 170, -0.55, 0.55);
+    }
+    box.addEventListener('pointerdown', function (e) { e.preventDefault(); aim(e); });
+    box.addEventListener('pointermove', function (e) { if (e.buttons || e.pointerType === 'touch') aim(e); });
+    $('startBtn').addEventListener('click', start);
+    $('againBtn').addEventListener('click', function () { resetAll(); start(); });
+    $('retryBtn').addEventListener('click', function () { if (!over) loadLevel(levelIdx); });
+    $('muteBtn').addEventListener('click', function () {
+      var m = !A.isMuted(); A.setMuted(m); $('muteBtn').textContent = m ? '🔇 音效关' : '🔊 音效开';
+    });
+
+    resetAll();
+    requestAnimationFrame(function (t) { lastTs = t; loop(t); });
+  })();
+  </script>
+</body>
+</html>

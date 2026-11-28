@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>回声山谷 - 洪哥做的好耍小游戏</title>
+  <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body class="game-page">
+  <div data-ad-slot="banner-top" class="ad-slot-wrap"></div>
+  <div class="game-topbar">
+    <a class="back-btn" href="../../index.html">← 返回游戏大厅</a>
+    <div class="game-title">🔊 回声山谷</div>
+  </div>
+
+  <div class="arcade-wrap">
+    <div class="arcade-hud">
+      <div class="arcade-stat"><span class="lbl">关卡</span><span class="val" id="level">1/3</span></div>
+      <div class="arcade-stat combo"><span class="lbl">声波</span><span class="val" id="shots">6</span></div>
+      <div class="arcade-stat hi"><span class="lbl">唤醒</span><span class="val" id="awake">0/1</span></div>
+    </div>
+
+    <div class="arcade-canvas-box" id="box">
+      <canvas id="cv"></canvas>
+      <div class="arcade-overlay show" id="startOv">
+        <div class="arcade-panel">
+          <div class="p-emoji">🔊</div>
+          <h2>回声山谷</h2>
+          <p class="p-sub">山谷里的小动物睡着了。点击画面，从底部的回声螺发出一圈声波——声波碰到岩壁会反弹。想办法让它绕着撞到沉睡的动物，把它们一一唤醒！声波次数有限哦。</p>
+          <button class="arcade-btn primary big" id="startBtn">开始探索</button>
+        </div>
+      </div>
+      <div class="arcade-overlay" id="endOv">
+        <div class="arcade-panel">
+          <div class="p-emoji" id="endEmoji">🌄</div>
+          <h2 id="endTitle">山谷醒啦！</h2>
+          <div class="p-sub" id="endDesc">你把山谷里的小动物都唤醒了。</div>
+          <button class="arcade-btn primary big" id="againBtn">再玩一次</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="arcade-controls">
+      <button class="arcade-btn" id="retryBtn">↻ 重来本关</button>
+      <button class="arcade-btn" id="muteBtn">🔊 音效开</button>
+    </div>
+    <p class="arcade-tip">点击画面任意位置发射声波，方向是从底部回声螺指向你点的位置。声波碰到岩壁会反射，撞到动物就能唤醒它！</p>
+  </div>
+
+  <div data-ad-slot="banner-bottom" class="ad-slot-wrap"></div>
+
+  <script src="../../js/ads.js"></script>
+  <script src="../../js/arcade-kit.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var A = window.Arcade;
+    var W = 480, H = 560;
+    var cv = document.getElementById('cv');
+    var ctx = A.fitCanvas(cv, W, H);
+    var box = document.getElementById('box');
+    var $ = function (id) { return document.getElementById(id); };
+    var SOURCE = { x: W / 2, y: H - 42 };
+
+    var LEVELS = [
+      {
+        shots: 7,
+        walls: [
+          { x1: 40, y1: 250, x2: 300, y2: 130 }
+        ],
+        animals: [
+          { x: 88, y: 105, e: '🐌' }
+        ]
+      },
+      {
+        shots: 8,
+        walls: [
+          { x1: 20, y1: 210, x2: 250, y2: 300 },
+          { x1: 300, y1: 150, x2: 460, y2: 240 }
+        ],
+        animals: [
+          { x: 400, y: 90, e: '🐸' },
+          { x: 80, y: 380, e: '🐦' }
+        ]
+      },
+      {
+        shots: 10,
+        walls: [
+          { x1: 30, y1: 200, x2: 210, y2: 120 },
+          { x1: 270, y1: 120, x2: 450, y2: 210 },
+          { x1: 150, y1: 340, x2: 330, y2: 420 }
+        ],
+        animals: [
+          { x: 240, y: 70, e: '🦉' },
+          { x: 70, y: 300, e: '🐰' },
+          { x: 410, y: 340, e: '🦊' }
+        ]
+      }
+    ];
+
+    var levelIdx, walls, animals, shotsLeft, waves, running, over, particles, floaters, lastTs, time, aim, soundWaveRings;
+
+    function loadLevel(i) {
+      levelIdx = i;
+      var L = LEVELS[i];
+      walls = L.walls.map(function (w) { return { x1: w.x1, y1: w.y1, x2: w.x2, y2: w.y2 }; });
+      animals = L.animals.map(function (a) { return { x: a.x, y: a.y, e: a.e, awake: false, bloom: 0 }; });
+      shotsLeft = L.shots;
+      waves = []; soundWaveRings = []; aim = null;
+      particles = new A.Particles(); floaters = new A.Floaters();
+      $('level').textContent = (i + 1) + '/' + LEVELS.length;
+      updateHud();
+    }
+    function resetAll() {
+      over = false; running = false; time = 0;
+      loadLevel(0);
+      $('endOv').classList.remove('show');
+      $('startOv').classList.add('show');
+    }
+    function start() {
+      $('startOv').classList.remove('show');
+      running = true; lastTs = performance.now();
+    }
+    function updateHud() {
+      $('shots').textContent = shotsLeft;
+      var n = 0; for (var i = 0; i < animals.length; i++) if (animals[i].awake) n++;
+      $('awake').textContent = n + '/' + animals.length;
+    }
+
+    function fire(tx, ty) {
+      if (!running || over || shotsLeft <= 0) return;
+      var dx = tx - SOURCE.x, dy = ty - SOURCE.y;
+      var len = Math.hypot(dx, dy);
+      if (len < 1) return;
+      var sp = 260;
+      waves.push({ x: SOURCE.x, y: SOURCE.y, vx: dx / len * sp, vy: dy / len * sp, r: 8, life: 4.2, bounces: 0, trail: [] });
+      soundWaveRings.push({ x: SOURCE.x, y: SOURCE.y, r: 6, life: 0.7 });
+      shotsLeft--; updateHud();
+      A.SFX.jump(); A.vibrate(10);
+    }
+
+    function closestOnSeg(px, py, w) {
+      var dx = w.x2 - w.x1, dy = w.y2 - w.y1;
+      var L2 = dx * dx + dy * dy;
+      var t = L2 ? ((px - w.x1) * dx + (py - w.y1) * dy) / L2 : 0;
+      t = A.clamp(t, 0, 1);
+      return { x: w.x1 + dx * t, y: w.y1 + dy * t, dx: dx, dy: dy };
+    }
+
+    function updateWaves(dt) {
+      for (var i = waves.length - 1; i >= 0; i--) {
+        var w = waves[i];
+        w.life -= dt;
+        // 细分步进防穿透
+        var steps = 3, sdt = dt / steps, dead = false;
+        for (var s = 0; s < steps && !dead; s++) {
+          w.x += w.vx * sdt; w.y += w.vy * sdt;
+          // 记录尾迹
+          if (s === steps - 1) { w.trail.push({ x: w.x, y: w.y }); if (w.trail.length > 14) w.trail.shift(); }
+          // 撞动物
+          for (var a = 0; a < animals.length; a++) {
+            var an = animals[a];
+            if (!an.awake && Math.hypot(w.x - an.x, w.y - an.y) < w.r + 30) {
+              an.awake = true; an.bloom = 0;
+              particles.burst(an.x, an.y, { count: 18, colors: ['#FFD86B', '#FFFFFF', '#6EC1FF'], speedMax: 200, lifeMax: 0.9, gravity: 40 });
+              floaters.add(an.x, an.y - 30, '唤醒！', '#FFD86B', 20);
+              A.SFX.score(); A.vibrate(18);
+              updateHud();
+              if (allAwake()) { winLevel(); return; }
+            }
+          }
+          // 撞岩壁反射
+          for (var k = 0; k < walls.length; k++) {
+            var cp = closestOnSeg(w.x, w.y, walls[k]);
+            var d = Math.hypot(w.x - cp.x, w.y - cp.y);
+            if (d < w.r + 7) {
+              var nx = cp.dx, ny = cp.dy;
+              var nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
+              var dot = w.vx * nx + w.vy * ny;
+              w.vx -= 2 * dot * nx; w.vy -= 2 * dot * ny;
+              // 推出墙面
+              var push = (w.r + 9) - d;
+              var sx = (w.x - cp.x) / (d || 1), sy = (w.y - cp.y) / (d || 1);
+              w.x += sx * push; w.y += sy * push;
+              w.bounces++;
+              A.SFX.click();
+              particles.burst(w.x, w.y, { count: 5, colors: ['#BFD4FF', '#FFFFFF'], speedMin: 20, speedMax: 90, lifeMax: 0.4, gravity: 0 });
+              break;
+            }
+          }
+          // 出界 / 超时 / 反弹过多
+          if (w.x < -20 || w.x > W + 20 || w.y < -20 || w.y > H + 20 || w.life <= 0 || w.bounces > 12) dead = true;
+        }
+        if (dead) waves.splice(i, 1);
+      }
+    }
+
+    function allAwake() {
+      for (var i = 0; i < animals.length; i++) if (!animals[i].awake) return false;
+      return true;
+    }
+    function winLevel() {
+      // 清掉声波，稍后进入下一关
+      waves = [];
+      A.SFX.win(); A.vibrate(30);
+      if (levelIdx < LEVELS.length - 1) {
+        floaters.add(W / 2, H / 2, '山谷苏醒！', '#FFD86B', 30);
+        setTimeout(function () { if (!over) loadLevel(levelIdx + 1); }, 1100);
+      } else {
+        over = true; running = false;
+        $('endEmoji').textContent = '🌄';
+        $('endTitle').textContent = '整座山谷醒啦！';
+        $('endDesc').textContent = '所有沉睡的小动物都被你的回声唤醒了，真棒！';
+        $('endOv').classList.add('show');
+      }
+    }
+
+    function drawWalls() {
+      for (var i = 0; i < walls.length; i++) {
+        var w = walls[i];
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = 'rgba(8,14,38,.5)'; ctx.lineWidth = 18;
+        ctx.beginPath(); ctx.moveTo(w.x1, w.y1 + 4); ctx.lineTo(w.x2, w.y2 + 4); ctx.stroke();
+        ctx.strokeStyle = '#6E7FA8'; ctx.lineWidth = 14;
+        ctx.beginPath(); ctx.moveTo(w.x1, w.y1); ctx.lineTo(w.x2, w.y2); ctx.stroke();
+        ctx.strokeStyle = 'rgba(220,235,255,.55)'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(w.x1, w.y1 - 4); ctx.lineTo(w.x2, w.y2 - 4); ctx.stroke();
+      }
+      ctx.lineCap = 'butt';
+    }
+    function drawAnimals() {
+      for (var i = 0; i < animals.length; i++) {
+        var an = animals[i];
+        if (an.bloom < 1) an.bloom = Math.min(1, an.bloom + 0.02);
+        var hop = an.awake ? Math.abs(Math.sin(time * 5 + i)) * 10 : 0;
+        var y = an.y - hop;
+        if (an.awake) { ctx.shadowColor = '#FFD86B'; ctx.shadowBlur = 18; }
+        ctx.globalAlpha = an.awake ? 1 : 0.55;
+        ctx.font = '44px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(an.e, an.x, y);
+        ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+        if (!an.awake) {
+          ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.font = 'bold 16px sans-serif';
+          ctx.fillText('z', an.x + 20, y - 26);
+          ctx.font = 'bold 12px sans-serif';
+          ctx.fillText('z', an.x + 30, y - 38);
+        }
+      }
+      ctx.textBaseline = 'alphabetic';
+    }
+    function drawWaves() {
+      for (var i = 0; i < waves.length; i++) {
+        var w = waves[i];
+        // 尾迹
+        for (var t = 0; t < w.trail.length; t++) {
+          var al = (t + 1) / w.trail.length * 0.5;
+          ctx.globalAlpha = al;
+          ctx.fillStyle = '#8FD3FF';
+          ctx.beginPath(); ctx.arc(w.trail[t].x, w.trail[t].y, w.r * (t + 1) / w.trail.length, 0, 6.28); ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        ctx.shadowColor = '#8FD3FF'; ctx.shadowBlur = 22;
+        ctx.fillStyle = '#DFF3FF';
+        ctx.beginPath(); ctx.arc(w.x, w.y, w.r, 0, 6.28); ctx.fill();
+        ctx.strokeStyle = '#8FD3FF'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(w.x, w.y, w.r + 4, 0, 6.28); ctx.stroke();
+        ctx.shadowBlur = 0;
+      }
+      for (var r = 0; r < soundWaveRings.length; r++) {
+        var ring = soundWaveRings[r];
+        ring.r += 90 * 0.016; ring.life -= 0.016;
+        ctx.globalAlpha = Math.max(0, ring.life / 0.7) * 0.6;
+        ctx.strokeStyle = '#8FD3FF'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(ring.x, ring.y, ring.r, 0, 6.28); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      soundWaveRings = soundWaveRings.filter(function (r) { return r.life > 0; });
+    }
+
+    function draw() {
+      var g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, '#101A3E'); g.addColorStop(0.6, '#222B5E'); g.addColorStop(1, '#2E3A72');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      // 远山
+      ctx.fillStyle = 'rgba(70,90,150,.35)';
+      ctx.beginPath(); ctx.moveTo(0, H); ctx.lineTo(120, 300); ctx.lineTo(240, H); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(240, H); ctx.lineTo(370, 260); ctx.lineTo(W, H); ctx.closePath(); ctx.fill();
+      // 月亮
+      ctx.fillStyle = '#FFE9A8'; ctx.shadowColor = '#FFE9A8'; ctx.shadowBlur = 30;
+      ctx.beginPath(); ctx.arc(W - 70, 70, 26, 0, 6.28); ctx.fill(); ctx.shadowBlur = 0;
+      // 星星
+      ctx.fillStyle = 'rgba(255,255,255,.7)';
+      for (var s = 0; s < 24; s++) {
+        var sx = (s * 71) % W, sy = (s * 43) % 260;
+        ctx.beginPath(); ctx.arc(sx, sy, s % 4 === 0 ? 2 : 1.2, 0, 6.28); ctx.fill();
+      }
+      drawWalls();
+      drawAnimals();
+      drawWaves();
+      // 回声螺
+      ctx.shadowColor = '#6EC1FF'; ctx.shadowBlur = 22;
+      ctx.font = '40px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('🐚', SOURCE.x, SOURCE.y); ctx.shadowBlur = 0;
+      // 瞄准辅助线
+      if (aim && running && !over) {
+        var dx = aim.x - SOURCE.x, dy = aim.y - SOURCE.y, len = Math.hypot(dx, dy) || 1;
+        ctx.strokeStyle = 'rgba(143,211,255,.5)'; ctx.lineWidth = 2; ctx.setLineDash([6, 6]);
+        ctx.beginPath(); ctx.moveTo(SOURCE.x, SOURCE.y);
+        ctx.lineTo(SOURCE.x + dx / len * 70, SOURCE.y + dy / len * 70); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      ctx.textBaseline = 'alphabetic';
+      particles.draw(ctx); floaters.draw(ctx);
+    }
+
+    function loop(ts) {
+      var dt = Math.min((ts - lastTs) / 1000 || 0, 0.033);
+      lastTs = ts; time += dt;
+      if (running && !over) updateWaves(dt);
+      particles.update(dt); floaters.update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+    function pointer(e) {
+      var rect = cv.getBoundingClientRect();
+      return { x: (e.clientX - rect.left) / rect.width * W, y: (e.clientY - rect.top) / rect.height * H };
+    }
+    box.addEventListener('pointermove', function (e) { aim = pointer(e); });
+    box.addEventListener('pointerdown', function (e) {
+      e.preventDefault(); if (!running || over) return;
+      var p = pointer(e); aim = p; fire(p.x, p.y);
+    });
+    box.addEventListener('pointerleave', function () { aim = null; });
+    $('startBtn').addEventListener('click', start);
+    $('againBtn').addEventListener('click', function () { resetAll(); start(); });
+    $('retryBtn').addEventListener('click', function () { if (!over) { loadLevel(levelIdx); } });
+    $('muteBtn').addEventListener('click', function () {
+      var m = !A.isMuted(); A.setMuted(m); $('muteBtn').textContent = m ? '🔇 音效关' : '🔊 音效开';
+    });
+
+    resetAll();
+    requestAnimationFrame(function (t) { lastTs = t; loop(t); });
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>织网接星 - 洪哥做的好耍小游戏</title>
+  <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body class="game-page">
+  <div data-ad-slot="banner-top" class="ad-slot-wrap"></div>
+  <div class="game-topbar">
+    <a class="back-btn" href="../../index.html">← 返回游戏大厅</a>
+    <div class="game-title">🕸️ 织网接星</div>
+  </div>
+
+  <div class="arcade-wrap">
+    <div class="arcade-hud">
+      <div class="arcade-stat"><span class="lbl">关卡</span><span class="val" id="level">1/3</span></div>
+      <div class="arcade-stat combo"><span class="lbl">接住</span><span class="val" id="caught">0/4</span></div>
+      <div class="arcade-stat hi"><span class="lbl">丝线</span><span class="val" id="threads">3</span></div>
+    </div>
+
+    <div class="arcade-canvas-box" id="box">
+      <canvas id="cv"></canvas>
+      <div class="arcade-overlay show" id="startOv">
+        <div class="arcade-panel">
+          <div class="p-emoji">🕸️</div>
+          <h2>织网接星</h2>
+          <p class="p-sub">星星从夜空掉落，别让它们摔碎！点两个发光节点，就能拉出一条丝线（长度有限）。摆好角度，把落下的星星弹进底部的收集筐。丝线数量有限，像蜘蛛一样织出你的承托网吧！</p>
+          <button class="arcade-btn primary big" id="startBtn">开始织网</button>
+        </div>
+      </div>
+      <div class="arcade-overlay" id="endOv">
+        <div class="arcade-panel">
+          <div class="p-emoji" id="endEmoji">🌟</div>
+          <h2 id="endTitle">接住啦！</h2>
+          <div class="p-sub" id="endDesc">你把星星都稳稳接进了筐里。</div>
+          <button class="arcade-btn primary big" id="againBtn">再玩一次</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="arcade-controls">
+      <button class="arcade-btn" id="undoBtn">↩ 撤销一丝</button>
+      <button class="arcade-btn" id="muteBtn">🔊 音效开</button>
+    </div>
+    <p class="arcade-tip">点第一个节点，再点第二个节点即可拉丝线。丝线像小蹦床，星星撞上会弹开。把它们引进底部发光的收集筐！</p>
+  </div>
+
+  <div data-ad-slot="banner-bottom" class="ad-slot-wrap"></div>
+
+  <script src="../../js/ads.js"></script>
+  <script src="../../js/arcade-kit.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var A = window.Arcade;
+    var W = 480, H = 560;
+    var cv = document.getElementById('cv');
+    var ctx = A.fitCanvas(cv, W, H);
+    var box = document.getElementById('box');
+    var $ = function (id) { return document.getElementById(id); };
+
+    // 节点网格
+    var nodes = [];
+    for (var r = 0; r < 4; r++) {
+      for (var c = 0; c < 5; c++) {
+        nodes.push({ x: 56 + c * 92, y: 120 + r * 88 });
+      }
+    }
+    var MAX_LEN = 150;
+
+    var LEVELS = [
+      { threads: 3, need: 4, basket: { x: 240, w: 150 }, stars: [80, 200, 300, 400] },
+      { threads: 4, need: 5, basket: { x: 130, w: 140 }, stars: [120, 240, 360, 180, 300] },
+      { threads: 5, need: 6, basket: { x: 350, w: 140 }, stars: [90, 200, 310, 420, 150, 260] }
+    ];
+
+    var levelIdx, threadsLeft, basket, spawnXs, spawned, caught, lost, falling, threads,
+        selNode, running, over, particles, floaters, lastTs, time, spawnTimer, particlesStar, settleTimer;
+
+    function loadLevel(i) {
+      levelIdx = i;
+      var L = LEVELS[i];
+      threadsLeft = L.threads;
+      basket = { x: L.basket.x, w: L.basket.w, y: H - 46 };
+      spawnXs = L.stars.slice(); spawned = 0; caught = 0; lost = 0;
+      falling = []; threads = []; selNode = -1;
+      spawnTimer = 0.5; settleTimer = 0;
+      particles = new A.Particles(); floaters = new A.Floaters();
+      $('level').textContent = (i + 1) + '/' + LEVELS.length;
+      updateHud();
+    }
+    function resetAll() {
+      over = false; running = false; time = 0;
+      loadLevel(0);
+      $('endOv').classList.remove('show');
+      $('startOv').classList.add('show');
+    }
+    function start() {
+      $('startOv').classList.remove('show');
+      running = true; lastTs = performance.now();
+    }
+    function updateHud() {
+      $('caught').textContent = caught + '/' + spawnXs.length;
+      $('threads').textContent = threadsLeft;
+    }
+
+    function nodeHit(p) {
+      for (var i = 0; i < nodes.length; i++) {
+        if (Math.hypot(p.x - nodes[i].x, p.y - nodes[i].y) < 22) return i;
+      }
+      return -1;
+    }
+    function clickNode(idx) {
+      if (!running || over) return;
+      if (selNode < 0) {
+        selNode = idx; A.SFX.click();
+      } else if (selNode === idx) {
+        selNode = -1; A.SFX.tap();
+      } else {
+        var a = nodes[selNode], b = nodes[idx];
+        if (Math.hypot(a.x - b.x, a.y - b.y) <= MAX_LEN && threadsLeft > 0) {
+          threads.push({ a: selNode, b: idx, glow: 1 });
+          threadsLeft--; updateHud();
+          A.SFX.merge(2); A.vibrate(10);
+          var mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+          floaters.add(mx, my - 12, '丝线 +1', '#C79BFF', 15);
+        } else {
+          A.SFX.fail();
+          floaters.add(b.x, b.y - 16, threadsLeft <= 0 ? '丝线用完了' : '太长了', '#FF7B9C', 14);
+        }
+        selNode = -1;
+      }
+    }
+    function undo() {
+      if (!running || over) return;
+      if (threads.length > 0) {
+        threads.pop(); threadsLeft++; updateHud(); A.SFX.tap();
+      }
+    }
+
+    function spawnStar() {
+      var x = spawnXs[spawned]; spawned++;
+      falling.push({ x: x, y: -16, vx: A.rand(-12, 12), vy: 40, r: 13, spin: A.rand(0, 6.28), dead: false });
+    }
+
+    function closestOnSeg(px, py, ax, ay, bx, by) {
+      var dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+      var t = L2 ? ((px - ax) * dx + (py - ay) * dy) / L2 : 0;
+      t = A.clamp(t, 0, 1);
+      return { x: ax + dx * t, y: ay + dy * t, dx: dx, dy: dy };
+    }
+
+    function updateStars(dt) {
+      var G = 520;
+      // 生成
+      if (spawned < spawnXs.length) {
+        spawnTimer -= dt;
+        if (spawnTimer <= 0) { spawnStar(); spawnTimer = 0.9; }
+      }
+      for (var i = falling.length - 1; i >= 0; i--) {
+        var s = falling[i];
+        if (s.dead) { falling.splice(i, 1); continue; }
+        var steps = 4, sdt = dt / steps;
+        for (var st = 0; st < steps; st++) {
+          s.vy += G * sdt;
+          s.x += s.vx * sdt; s.y += s.vy * sdt;
+          s.spin += dt * 2;
+          // 与丝线碰撞
+          for (var k = 0; k < threads.length; k++) {
+            var th = threads[k];
+            var a = nodes[th.a], b = nodes[th.b];
+            var cp = closestOnSeg(s.x, s.y, a.x, a.y, b.x, b.y);
+            var d = Math.hypot(s.x - cp.x, s.y - cp.y);
+            if (d < s.r + 4 && s.vy > 0) {
+              var nx = cp.dx, ny = cp.dy, nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
+              var dot = s.vx * nx + s.vy * ny;
+              // 只从上方落下时反弹（法线朝上）
+              if (dot > 0) {
+                s.vx -= 1.5 * dot * nx; s.vy -= 1.5 * dot * ny;
+                s.vx *= 0.82; s.vy *= 0.82;
+                var push = (s.r + 6) - d;
+                var sx = (s.x - cp.x) / (d || 1), sy = (s.y - cp.y) / (d || 1);
+                s.x += sx * push; s.y += sy * push;
+                th.glow = 1;
+                A.SFX.tap();
+                particles.burst(s.x, s.y, { count: 5, colors: ['#C79BFF', '#FFFFFF'], speedMax: 100, lifeMax: 0.4, gravity: 100 });
+              }
+            }
+          }
+          // 进筐
+          if (s.y > basket.y - 6 && Math.abs(s.x - basket.x) < basket.w / 2) {
+            s.dead = true; caught++; updateHud();
+            particles.burst(s.x, basket.y, { count: 14, colors: ['#FFD86B', '#FFFFFF', '#FFB84A'], speedMax: 170, lifeMax: 0.8, gravity: 130 });
+            floaters.add(s.x, basket.y - 18, '+1', '#FFD86B', 18);
+            A.SFX.score(); A.vibrate(12);
+            break;
+          }
+          // 摔碎
+          if (s.y > H + 20) {
+            s.dead = true; lost++;
+            particles.burst(s.x, H - 6, { count: 12, colors: ['#FF7B9C', '#FFFFFF'], speedMax: 140, lifeMax: 0.6, gravity: 200 });
+            A.SFX.fail();
+            break;
+          }
+        }
+      }
+      // 关卡结算：全部生成且场上无星星
+      if (spawned >= spawnXs.length && falling.length === 0) {
+        settleTimer += dt;
+        if (settleTimer > 0.5) {
+          if (caught >= spawnXs.length - 1) winLevel();
+          else {
+            // 未达标，重开本关
+            floaters.add(W / 2, H / 2, '再织一次网吧', '#FF7B9C', 20);
+            setTimeout(function () { if (!over) loadLevel(levelIdx); }, 1000);
+            settleTimer = -10;
+          }
+        }
+      }
+    }
+
+    function winLevel() {
+      over = true; running = false;
+      A.SFX.win(); A.vibrate(35);
+      if (levelIdx < LEVELS.length - 1) {
+        over = false;
+        floaters.add(W / 2, H / 2, '接住啦！', '#FFD86B', 30);
+        setTimeout(function () { if (!over) loadLevel(levelIdx + 1); }, 1200);
+      } else {
+        $('endEmoji').textContent = '🌟';
+        $('endTitle').textContent = '星星都接住啦！';
+        $('endDesc').textContent = '你织的承托网又稳又巧，星星们安全落进筐里。';
+        $('endOv').classList.add('show');
+      }
+    }
+
+    function drawStar(s) {
+      ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(s.spin);
+      ctx.shadowColor = '#FFD86B'; ctx.shadowBlur = 16;
+      ctx.fillStyle = '#FFD86B';
+      ctx.beginPath();
+      for (var i = 0; i < 10; i++) {
+        var ang = -Math.PI / 2 + i * Math.PI / 5, rr = (i % 2 === 0) ? s.r : s.r * 0.45;
+        var px = Math.cos(ang) * rr, py = Math.sin(ang) * rr;
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.closePath(); ctx.fill(); ctx.shadowBlur = 0;
+      ctx.fillStyle = 'rgba(255,255,255,.85)';
+      ctx.beginPath(); ctx.arc(-s.r * 0.2, -s.r * 0.25, s.r * 0.2, 0, 6.28); ctx.fill();
+      ctx.restore();
+    }
+
+    function draw() {
+      var g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, '#111B40'); g.addColorStop(0.6, '#222A5C'); g.addColorStop(1, '#2C3768');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      // 星空
+      ctx.fillStyle = 'rgba(255,255,255,.7)';
+      for (var s = 0; s < 40; s++) {
+        var sx = (s * 83) % W, sy = (s * 47) % (H - 100);
+        var tw = 0.6 + Math.sin(time * 2 + s) * 0.4;
+        ctx.globalAlpha = tw;
+        ctx.beginPath(); ctx.arc(sx, sy, s % 5 === 0 ? 1.8 : 1, 0, 6.28); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      // 收集筐
+      var bx = basket.x - basket.w / 2;
+      ctx.fillStyle = 'rgba(255,216,107,.15)';
+      A.roundRectPath(ctx, bx, basket.y - 4, basket.w, 44, 10); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,216,107,.75)'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(bx, basket.y); ctx.lineTo(bx, basket.y + 38);
+      ctx.lineTo(bx + basket.w, basket.y + 38); ctx.lineTo(bx + basket.w, basket.y); ctx.stroke();
+      for (var gx = bx + 12; gx < bx + basket.w; gx += 18) {
+        ctx.beginPath(); ctx.moveTo(gx, basket.y + 4); ctx.lineTo(gx, basket.y + 34); ctx.stroke();
+      }
+      ctx.fillStyle = '#FFD86B'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('收集筐', basket.x, basket.y + 26);
+      // 丝线
+      for (var k = 0; k < threads.length; k++) {
+        var th = threads[k], a = nodes[th.a], b = nodes[th.b];
+        if (th.glow > 0) th.glow -= 0.02;
+        ctx.shadowColor = '#C79BFF'; ctx.shadowBlur = 10 + th.glow * 14;
+        ctx.strokeStyle = 'rgba(220,195,255,' + (0.8 + th.glow * 0.2) + ')';
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+        ctx.shadowBlur = 0;
+      }
+      // 节点
+      for (var n = 0; n < nodes.length; n++) {
+        var nd = nodes[n];
+        var isSel = (n === selNode);
+        ctx.fillStyle = isSel ? '#FFD86B' : 'rgba(199,155,255,.85)';
+        ctx.shadowColor = isSel ? '#FFD86B' : '#C79BFF'; ctx.shadowBlur = isSel ? 20 : 8;
+        ctx.beginPath(); ctx.arc(nd.x, nd.y, isSel ? 9 : 5, 0, 6.28); ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+      // 选中预览线
+      if (selNode >= 0) {
+        var sn = nodes[selNode];
+        ctx.strokeStyle = 'rgba(255,216,107,.45)'; ctx.lineWidth = 2; ctx.setLineDash([5, 5]);
+        ctx.beginPath(); ctx.arc(sn.x, sn.y, MAX_LEN, 0, 6.28); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      // 星星
+      for (var i = 0; i < falling.length; i++) drawStar(falling[i]);
+      // 顶部提示
+      ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'left';
+      ctx.fillText('点两个节点拉丝线 · 把星星弹进筐', 14, 26);
+      particles.draw(ctx); floaters.draw(ctx);
+    }
+
+    function loop(ts) {
+      var dt = Math.min((ts - lastTs) / 1000 || 0, 0.033);
+      lastTs = ts; time += dt;
+      if (running && !over) updateStars(dt);
+      particles.update(dt); floaters.update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+    function pointer(e) {
+      var rect = cv.getBoundingClientRect();
+      return { x: (e.clientX - rect.left) / rect.width * W, y: (e.clientY - rect.top) / rect.height * H };
+    }
+    box.addEventListener('pointerdown', function (e) {
+      e.preventDefault(); if (!running || over) return;
+      var idx = nodeHit(pointer(e));
+      if (idx >= 0) clickNode(idx);
+    });
+    $('startBtn').addEventListener('click', start);
+    $('againBtn').addEventListener('click', function () { resetAll(); start(); });
+    $('undoBtn').addEventListener('click', undo);
+    $('muteBtn').addEventListener('click', function () {
+      var m = !A.isMuted(); A.setMuted(m); $('muteBtn').textContent = m ? '🔇 音效关' : '🔊 音效开';
+    });
+
+    resetAll();
+    requestAnimationFrame(function (t) { lastTs = t; loop(t); });
+  })();
+  </script>
+</body>
+</html>

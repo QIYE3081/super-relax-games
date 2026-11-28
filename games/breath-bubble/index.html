@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>呼吸泡泡 - 洪哥做的好耍小游戏</title>
+  <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body class="game-page">
+  <div data-ad-slot="banner-top" class="ad-slot-wrap"></div>
+  <div class="game-topbar">
+    <a class="back-btn" href="../../index.html">← 返回游戏大厅</a>
+    <div class="game-title">☁️ 呼吸泡泡</div>
+  </div>
+
+  <div class="arcade-wrap">
+    <div class="arcade-hud">
+      <div class="arcade-stat"><span class="lbl">关卡</span><span class="val" id="level">1/3</span></div>
+      <div class="arcade-stat combo"><span class="lbl">穿过</span><span class="val" id="passed">0/3</span></div>
+      <div class="arcade-stat hi"><span class="lbl">机会</span><span class="val" id="lives">3</span></div>
+    </div>
+
+    <div class="arcade-canvas-box" id="box">
+      <canvas id="cv"></canvas>
+      <div class="arcade-overlay show" id="startOv">
+        <div class="arcade-panel">
+          <div class="p-emoji">☁️</div>
+          <h2>呼吸泡泡</h2>
+          <p class="p-sub">一个慢下来的小游戏。<b>按住屏幕吸气</b>，泡泡慢慢变大；<b>松开呼气</b>，泡泡轻轻上升。跟着呼吸，让泡泡不高不矮、稳稳穿过一个个光环。放慢节奏，深呼吸。</p>
+          <button class="arcade-btn primary big" id="startBtn">开始呼吸</button>
+        </div>
+      </div>
+      <div class="arcade-overlay" id="endOv">
+        <div class="arcade-panel">
+          <div class="p-emoji" id="endEmoji">🎐</div>
+          <h2 id="endTitle">好轻松呀～</h2>
+          <div class="p-sub" id="endDesc">泡泡穿过了所有光环，心情也跟着轻盈起来。</div>
+          <button class="arcade-btn primary big" id="againBtn">再呼吸一会</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="arcade-controls">
+      <button class="arcade-btn" id="retryBtn">↻ 重来本关</button>
+      <button class="arcade-btn" id="muteBtn">🔊 音效开</button>
+    </div>
+    <p class="arcade-tip">按住吸气让泡泡变大，松开让它上升。穿过光环时泡泡不能太大，也不能偏离环心。跟着自己的呼吸节奏来，不用急。</p>
+  </div>
+
+  <div data-ad-slot="banner-bottom" class="ad-slot-wrap"></div>
+
+  <script src="../../js/ads.js"></script>
+  <script src="../../js/arcade-kit.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var A = window.Arcade;
+    var W = 480, H = 560;
+    var cv = document.getElementById('cv');
+    var ctx = A.fitCanvas(cv, W, H);
+    var box = document.getElementById('box');
+    var $ = function (id) { return document.getElementById(id); };
+
+    /* ---------- 呼吸音（柔和持续音，吸气渐强、呼气渐弱） ---------- */
+    var audioCtx = null, osc = null, gain = null;
+    function initAudio() {
+      if (audioCtx || A.isMuted()) return;
+      try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        osc = audioCtx.createOscillator();
+        gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = 220;
+        gain.gain.value = 0.0001;
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.start();
+      } catch (e) { audioCtx = null; }
+    }
+    function breathe(power) {
+      // power 0..1
+      if (!audioCtx || A.isMuted()) return;
+      if (audioCtx.state === 'suspended') { try { audioCtx.resume(); } catch (e) {} }
+      try {
+        var t = audioCtx.currentTime;
+        gain.gain.cancelScheduledValues(t);
+        gain.gain.setTargetAtTime(0.0001 + power * 0.05, t, 0.15);
+        osc.frequency.setTargetAtTime(200 + power * 120, t, 0.2);
+      } catch (e) {}
+    }
+
+    var LEVELS = [
+      { lives: 3, rings: [
+        { x: 240, y: 400, inner: 58 }, { x: 200, y: 270, inner: 62 }, { x: 270, y: 140, inner: 66 }
+      ]},
+      { lives: 3, rings: [
+        { x: 180, y: 420, inner: 56 }, { x: 300, y: 300, inner: 58 }, { x: 160, y: 180, inner: 60 }, { x: 280, y: 80, inner: 64 }
+      ]},
+      { lives: 4, rings: [
+        { x: 260, y: 430, inner: 54 }, { x: 150, y: 330, inner: 56 }, { x: 320, y: 230, inner: 58 },
+        { x: 170, y: 140, inner: 60 }, { x: 280, y: 60, inner: 62 }
+      ]}
+    ];
+
+    var levelIdx, rings, nextRing, lives, bub, holding, running, over, particles, floaters,
+        lastTs, time, passFlash, failFlash, pointerX, breathPhase;
+
+    function loadLevel(i) {
+      levelIdx = i;
+      var L = LEVELS[i];
+      rings = L.rings.map(function (r) { return { x: r.x, y: r.y, inner: r.inner, passed: false, glow: 0 }; });
+      lives = L.lives; nextRing = 0;
+      resetBubble();
+      particles = new A.Particles(); floaters = new A.Floaters();
+      passFlash = 0; failFlash = 0; breathPhase = 0;
+      $('level').textContent = (i + 1) + '/' + LEVELS.length;
+      updateHud();
+    }
+    function resetBubble() {
+      bub = { x: W / 2, y: H - 70, r: 22, vy: 0 };
+      holding = false; pointerX = W / 2;
+    }
+    function resetAll() {
+      over = false; running = false; time = 0;
+      loadLevel(0);
+      $('endOv').classList.remove('show');
+      $('startOv').classList.add('show');
+    }
+    function start() {
+      initAudio();
+      $('startOv').classList.remove('show');
+      running = true; lastTs = performance.now();
+    }
+    function updateHud() {
+      $('passed').textContent = nextRing + '/' + rings.length;
+      $('lives').textContent = lives;
+    }
+
+    function onDown(e) {
+      e.preventDefault(); if (!running || over) return;
+      initAudio();
+      var rect = cv.getBoundingClientRect();
+      pointerX = (e.clientX - rect.left) / rect.width * W;
+      holding = true;
+      A.SFX.tap();
+    }
+    function onMove(e) {
+      if (!holding) return;
+      var rect = cv.getBoundingClientRect();
+      pointerX = (e.clientX - rect.left) / rect.width * W;
+    }
+    function onUp() { holding = false; }
+
+    function popBubble() {
+      particles.burst(bub.x, bub.y, { count: 22, colors: ['#BFE6FF', '#FFFFFF', '#8FD3FF'], speedMax: 200, lifeMax: 0.7, gravity: 60 });
+      A.SFX.fail(); A.vibrate(30);
+      failFlash = 0.5;
+      lives--; updateHud();
+      if (lives <= 0) {
+        over = true; running = false; breathe(0);
+        $('endEmoji').textContent = '☁️';
+        $('endTitle').textContent = '先歇一会儿';
+        $('endDesc').textContent = '别急，深呼吸，再慢慢来一次。';
+        $('endOv').classList.add('show');
+      } else {
+        setTimeout(function () { if (!over) resetBubble(); }, 450);
+        bub.r = 0; // 破裂动画
+      }
+    }
+
+    function update(dt) {
+      breathPhase += dt;
+      if (holding) {
+        // 吸气：变大
+        bub.r += 26 * dt;
+        if (bub.r > 66) bub.r = 66;
+        breathe(A.clamp((bub.r - 20) / 46, 0, 1));
+        // 水平跟随手指
+        bub.x += (pointerX - bub.x) * Math.min(1, dt * 4);
+        bub.vy *= 0.9;
+      } else {
+        // 呼气：缓缓上升
+        breathe(0);
+        bub.vy = -Math.min(150, 70 + bub.r * 1.2);
+        bub.y += bub.vy * dt;
+        bub.x += Math.sin(time * 1.6) * 8 * dt;
+      }
+      bub.r = Math.max(10, bub.r);
+
+      // 检测当前光环
+      if (nextRing < rings.length && !over) {
+        var ring = rings[nextRing];
+        // 到达环的高度（自下而上穿过）
+        if (bub.y <= ring.y + 6) {
+          var dx = Math.abs(bub.x - ring.x);
+          var fit = bub.r <= ring.inner - 6;
+          if (dx <= ring.inner - 8 && fit) {
+            // 穿过
+            ring.passed = true; ring.glow = 1; nextRing++; updateHud();
+            passFlash = 0.4;
+            particles.burst(ring.x, ring.y, { count: 12, colors: ['#FFD86B', '#FFFFFF', '#6EC1FF'], speedMax: 150, lifeMax: 0.7, gravity: 30 });
+            floaters.add(ring.x, ring.y - 26, '+1', '#FFD86B', 20);
+            A.SFX.score(); A.vibrate(12);
+            if (nextRing >= rings.length) winLevel();
+          } else {
+            popBubble();
+          }
+        }
+      }
+      // 上升出顶部但未完成
+      if (bub.y < -40 && !over && nextRing < rings.length) {
+        setTimeout(function () { if (!over) resetBubble(); }, 200);
+        bub.r = 0;
+      }
+      if (passFlash > 0) passFlash -= dt;
+      if (failFlash > 0) failFlash -= dt;
+      for (var i = 0; i < rings.length; i++) if (rings[i].glow > 0) rings[i].glow -= dt * 1.5;
+    }
+
+    function winLevel() {
+      A.SFX.win(); A.vibrate(35);
+      if (levelIdx < LEVELS.length - 1) {
+        floaters.add(W / 2, H / 2, '穿过啦～', '#FFD86B', 28);
+        setTimeout(function () { if (!over) loadLevel(levelIdx + 1); }, 1200);
+      } else {
+        over = true; running = false; breathe(0);
+        $('endEmoji').textContent = '🎐';
+        $('endTitle').textContent = '好轻松呀～';
+        $('endDesc').textContent = '所有光环都穿过了，跟着呼吸，心情也轻盈起来。';
+        $('endOv').classList.add('show');
+      }
+    }
+
+    function drawRing(r) {
+      // 光环：椭圆开口（透视）
+      var rx = r.inner, ry = r.inner * 0.42;
+      ctx.save();
+      ctx.translate(r.x, r.y);
+      if (r.passed) { ctx.shadowColor = '#FFD86B'; ctx.shadowBlur = 20; }
+      ctx.strokeStyle = r.passed ? 'rgba(255,216,107,.95)' : 'rgba(255,255,255,.9)';
+      ctx.lineWidth = r.passed ? 6 : 5;
+      if (r.glow > 0) ctx.lineWidth += r.glow * 6;
+      ctx.beginPath(); ctx.ellipse(0, 0, rx, ry, 0, 0, 6.28); ctx.stroke();
+      // 高光
+      ctx.strokeStyle = r.passed ? 'rgba(255,255,255,.7)' : 'rgba(143,211,255,.7)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(0, 0, rx + 6, ry + 3, 0, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke();
+      ctx.restore(); ctx.shadowBlur = 0;
+    }
+
+    function draw() {
+      var g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, '#BEE3FF'); g.addColorStop(0.55, '#DCEBFF'); g.addColorStop(1, '#F3E9FF');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      // 柔和云
+      ctx.fillStyle = 'rgba(255,255,255,.5)';
+      for (var c = 0; c < 5; c++) {
+        var cx = (c * 137 + 40) % W, cy = 90 + (c * 73) % 360;
+        ctx.beginPath(); ctx.ellipse(cx, cy, 46, 18, 0, 0, 6.28); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(cx + 26, cy - 8, 30, 16, 0, 0, 6.28); ctx.fill();
+      }
+      // 光环
+      for (var i = 0; i < rings.length; i++) drawRing(rings[i]);
+      // 泡泡
+      if (bub.r > 1) {
+        ctx.shadowColor = 'rgba(143,211,255,.8)'; ctx.shadowBlur = 24;
+        var bg = ctx.createRadialGradient(bub.x - bub.r * 0.35, bub.y - bub.r * 0.35, 2, bub.x, bub.y, bub.r);
+        bg.addColorStop(0, 'rgba(255,255,255,.9)');
+        bg.addColorStop(0.5, 'rgba(190,230,255,.35)');
+        bg.addColorStop(0.85, 'rgba(140,205,255,.25)');
+        bg.addColorStop(1, 'rgba(255,255,255,.7)');
+        ctx.fillStyle = bg;
+        ctx.beginPath(); ctx.arc(bub.x, bub.y, bub.r, 0, 6.28); ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(bub.x, bub.y, bub.r, 0, 6.28); ctx.stroke();
+        ctx.fillStyle = 'rgba(255,255,255,.9)';
+        ctx.beginPath(); ctx.ellipse(bub.x - bub.r * 0.35, bub.y - bub.r * 0.4, bub.r * 0.18, bub.r * 0.11, -0.6, 0, 6.28); ctx.fill();
+      }
+      // 呼吸提示
+      ctx.textAlign = 'center'; ctx.font = 'bold 15px sans-serif';
+      ctx.fillStyle = holding ? '#3A9BE0' : '#7A6BB0';
+      ctx.fillText(holding ? '吸 气 · · · 松开会上升' : '呼 气 · 按住变大', W / 2, 34);
+      // 呼吸引导圈
+      var guideR = 12 + (holding ? (bub.r - 22) * 0.6 : Math.abs(Math.sin(breathPhase * 1.5)) * 8);
+      ctx.strokeStyle = 'rgba(90,130,200,.35)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(W / 2, H - 24, Math.max(8, guideR), 0, 6.28); ctx.stroke();
+      if (passFlash > 0) { ctx.fillStyle = 'rgba(255,216,107,' + (passFlash * 0.4) + ')'; ctx.fillRect(0, 0, W, H); }
+      if (failFlash > 0) { ctx.fillStyle = 'rgba(255,90,120,' + (failFlash * 0.35) + ')'; ctx.fillRect(0, 0, W, H); }
+      particles.draw(ctx); floaters.draw(ctx);
+    }
+
+    function loop(ts) {
+      var dt = Math.min((ts - lastTs) / 1000 || 0, 0.033);
+      lastTs = ts; time += dt;
+      if (running && !over) update(dt);
+      particles.update(dt); floaters.update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    box.addEventListener('pointerdown', onDown);
+    box.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    $('startBtn').addEventListener('click', start);
+    $('againBtn').addEventListener('click', function () { resetAll(); start(); });
+    $('retryBtn').addEventListener('click', function () { if (!over) loadLevel(levelIdx); });
+    $('muteBtn').addEventListener('click', function () {
+      var m = !A.isMuted(); A.setMuted(m); $('muteBtn').textContent = m ? '🔇 音效关' : '🔊 音效开';
+      if (m) breathe(0);
+    });
+
+    resetAll();
+    requestAnimationFrame(function (t) { lastTs = t; loop(t); });
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>齿轮之美 - 洪哥做的好耍小游戏</title>
+  <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body class="game-page">
+  <div data-ad-slot="banner-top" class="ad-slot-wrap"></div>
+  <div class="game-topbar">
+    <a class="back-btn" href="../../index.html">← 返回游戏大厅</a>
+    <div class="game-title">⚙️ 齿轮之美</div>
+  </div>
+
+  <div class="arcade-wrap">
+    <div class="arcade-hud">
+      <div class="arcade-stat"><span class="lbl">关卡</span><span class="val" id="level">1/3</span></div>
+      <div class="arcade-stat combo"><span class="lbl">就位</span><span class="val" id="placed">0/3</span></div>
+      <div class="arcade-stat hi"><span class="lbl">状态</span><span class="val" id="status">待机</span></div>
+    </div>
+
+    <div class="arcade-canvas-box" id="box">
+      <canvas id="cv"></canvas>
+      <div class="arcade-overlay show" id="startOv">
+        <div class="arcade-panel">
+          <div class="p-emoji">⚙️</div>
+          <h2>齿轮之美</h2>
+          <p class="p-sub">把散落的齿轮拖到轴上。尺寸吻合的齿轮会"咔哒"一声咬合，跟着动力齿轮一起转。当所有齿轮连成一条传动链，整台机械就活起来了！</p>
+          <button class="arcade-btn primary big" id="startBtn">开始拼合</button>
+        </div>
+      </div>
+      <div class="arcade-overlay" id="endOv">
+        <div class="arcade-panel">
+          <div class="p-emoji" id="endEmoji">⚙️</div>
+          <h2>咔咔转起来啦！</h2>
+          <div class="p-sub" id="endDesc">整台机械咬合联动，看着真解压。</div>
+          <button class="arcade-btn primary big" id="againBtn">再玩一次</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="arcade-controls">
+      <button class="arcade-btn" id="resetBtn">↻ 重新摆放</button>
+      <button class="arcade-btn" id="muteBtn">🔊 音效开</button>
+    </div>
+    <p class="arcade-tip">拖动齿轮放到虚线轴上，尺寸对得上就会自动吸住。把全部齿轮装好，让它们一起转动起来！</p>
+  </div>
+
+  <div data-ad-slot="banner-bottom" class="ad-slot-wrap"></div>
+
+  <script src="../../js/ads.js"></script>
+  <script src="../../js/arcade-kit.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var A = window.Arcade;
+    var W = 480, H = 560;
+    var cv = document.getElementById('cv');
+    var ctx = A.fitCanvas(cv, W, H);
+    var box = document.getElementById('box');
+    var $ = function (id) { return document.getElementById(id); };
+
+    // 关卡：轴位排成啮合链，相邻轴心距 = 半径和
+    var LEVELS = [
+      {
+        anchors: [
+          { x: 150, y: 210, r: 52, src: true },
+          { x: 250, y: 210, r: 48 },
+          { x: 340, y: 210, r: 42 }
+        ]
+      },
+      {
+        anchors: [
+          { x: 110, y: 180, r: 50, src: true },
+          { x: 200, y: 180, r: 40 },
+          { x: 278, y: 180, r: 38 },
+          { x: 352, y: 180, r: 36 }
+        ]
+      },
+      {
+        anchors: [
+          { x: 120, y: 150, r: 48, src: true },
+          { x: 206, y: 150, r: 38 },
+          { x: 206, y: 244, r: 40 },
+          { x: 292, y: 244, r: 38 },
+          { x: 292, y: 338, r: 42 }
+        ]
+      }
+    ];
+    var GEAR_COLORS = ['#FF8F6B', '#6EC1FF', '#5FD8A4', '#C79BFF', '#FFD86B'];
+
+    var levelIdx, anchors, gears, drag, running, over, particles, floaters, lastTs, time, spin, allMeshed, winTimer;
+
+    function loadLevel(i) {
+      levelIdx = i;
+      var L = LEVELS[i];
+      anchors = L.anchors.map(function (a, idx) {
+        return { x: a.x, y: a.y, r: a.r, src: !!a.src, gear: a.src ? idx : -1, angle: 0, speed: 0, idx: idx };
+      });
+      // 齿轮 = 每个轴位一个，尺寸对应；初始散落在下方
+      gears = [];
+      for (var g = 0; g < anchors.length; g++) {
+        if (anchors[g].src) continue; // 动力齿轮已装好
+        gears.push({
+          id: g, r: anchors[g].r, color: GEAR_COLORS[g % GEAR_COLORS.length],
+          homeX: 60 + (g % 3) * 150, homeY: 380 + Math.floor(g / 3) * 90,
+          x: 60 + (g % 3) * 150, y: 380 + Math.floor(g / 3) * 90,
+          placed: false, angle: 0
+        });
+      }
+      // 动力齿轮角度
+      drag = null; spin = 0; allMeshed = false; winTimer = 0;
+      particles = new A.Particles(); floaters = new A.Floaters();
+      recalcMesh();
+      $('level').textContent = (i + 1) + '/' + LEVELS.length;
+      updateHud();
+    }
+    function resetAll() {
+      over = false; running = false; time = 0;
+      loadLevel(0);
+      $('endOv').classList.remove('show');
+      $('startOv').classList.add('show');
+    }
+    function start() {
+      $('startOv').classList.remove('show');
+      running = true; lastTs = performance.now();
+    }
+    function updateHud() {
+      var placed = 0;
+      for (var g = 0; g < gears.length; g++) if (gears[g].placed) placed++;
+      $('placed').textContent = placed + '/' + gears.length;
+      $('status').textContent = allMeshed ? '运转中' : (placed > 0 ? '拼合中' : '待机');
+    }
+
+    function recalcMesh() {
+      // 计算每个轴位的传动速度：源=1，相邻反向、按半径比
+      for (var i = 0; i < anchors.length; i++) { anchors[i].speed = 0; anchors[i].meshed = false; }
+      var hasGear = function (idx) {
+        if (anchors[idx].src) return true;
+        for (var g = 0; g < gears.length; g++) if (gears[g].placed && gears[g].id === idx) return true;
+        return false;
+      };
+      // 从每个源 BFS
+      for (var s = 0; s < anchors.length; s++) {
+        if (!anchors[s].src || !hasGear(s)) continue;
+        anchors[s].speed = 1; anchors[s].meshed = true;
+        var changed = true;
+        while (changed) {
+          changed = false;
+          for (var a = 0; a < anchors.length; a++) {
+            if (!anchors[a].meshed || !hasGear(a)) continue;
+            for (var b = 0; b < anchors.length; b++) {
+              if (anchors[b].meshed || !hasGear(b)) continue;
+              var dist = Math.hypot(anchors[a].x - anchors[b].x, anchors[a].y - anchors[b].y);
+              if (Math.abs(dist - (anchors[a].r + anchors[b].r)) < 8) {
+                anchors[b].speed = -anchors[a].speed * anchors[a].r / anchors[b].r;
+                anchors[b].meshed = true; changed = true;
+              }
+            }
+          }
+        }
+      }
+      var all = true;
+      for (var k = 0; k < anchors.length; k++) if (!anchors[k].meshed) all = false;
+      var wasMeshed = allMeshed;
+      allMeshed = all;
+      if (allMeshed && !wasMeshed) {
+        A.SFX.win(); A.vibrate(25);
+        floaters.add(W / 2, 100, '咔哒！咬合成功', '#5FD8A4', 22);
+      }
+      updateHud();
+    }
+
+    function tryPlace(gear) {
+      var best = -1, bestD = 1e9;
+      for (var i = 0; i < anchors.length; i++) {
+        var an = anchors[i];
+        if (an.src || an.gear !== -1) continue;
+        var d = Math.hypot(gear.x - an.x, gear.y - an.y);
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      if (best >= 0 && bestD < 46) {
+        var an2 = anchors[best];
+        if (best === gear.id && Math.abs(an2.r - gear.r) < 12) {
+          gear.x = an2.x; gear.y = an2.y; gear.placed = true;
+          an2.gear = gear.id;
+          A.SFX.merge(3); A.vibrate(14);
+          particles.burst(an2.x, an2.y, { count: 12, colors: ['#5FD8A4', '#FFFFFF'], speedMax: 120, lifeMax: 0.6, gravity: 80 });
+          floaters.add(an2.x, an2.y - an2.r - 8, '咔哒', '#5FD8A4', 16);
+          recalcMesh();
+          if (allMeshed && !over) winGame();
+          return;
+        } else {
+          A.SFX.fail();
+          floaters.add(an2.x, an2.y - an2.r - 8, '尺寸不合', '#FF7B9C', 14);
+        }
+      }
+      // 未放上，回原位
+      gear.x = gear.homeX; gear.y = gear.homeY; gear.placed = false;
+      A.SFX.tap();
+    }
+
+    function winGame() {
+      over = true;
+      setTimeout(function () {
+        $('endEmoji').textContent = '⚙️';
+        $('endDesc').textContent = '整台机械咬合联动，咔咔转动，看着真解压！';
+        $('endOv').classList.add('show');
+      }, 1200);
+    }
+
+    function drawGearShape(x, y, r, teeth, angle, color, src) {
+      ctx.save(); ctx.translate(x, y); ctx.rotate(angle);
+      // 齿
+      ctx.fillStyle = color;
+      for (var t = 0; t < teeth; t++) {
+        var a = t / teeth * 6.28;
+        ctx.save(); ctx.rotate(a);
+        A.roundRectPath(ctx, -7, -r - 9, 14, 16, 3); ctx.fill();
+        ctx.restore();
+      }
+      // 主体
+      ctx.shadowColor = color; ctx.shadowBlur = 12;
+      ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.28); ctx.fill();
+      ctx.shadowBlur = 0;
+      // 内圈
+      ctx.fillStyle = 'rgba(255,255,255,.28)';
+      ctx.beginPath(); ctx.arc(0, 0, r * 0.72, 0, 6.28); ctx.fill();
+      ctx.fillStyle = 'rgba(30,40,70,.85)';
+      ctx.beginPath(); ctx.arc(0, 0, r * 0.3, 0, 6.28); ctx.fill();
+      // 辐条孔
+      ctx.fillStyle = 'rgba(30,40,70,.35)';
+      for (var h = 0; h < 5; h++) {
+        var ha = h / 5 * 6.28;
+        ctx.beginPath();
+        ctx.arc(Math.cos(ha) * r * 0.5, Math.sin(ha) * r * 0.5, r * 0.11, 0, 6.28); ctx.fill();
+      }
+      if (src) {
+        ctx.fillStyle = '#FFF'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('动力', 0, 0);
+      }
+      ctx.restore();
+      ctx.textBaseline = 'alphabetic';
+    }
+
+    function draw() {
+      var g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, '#E9EFF8'); g.addColorStop(1, '#D7E2F0');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      // 背景网格
+      ctx.strokeStyle = 'rgba(90,120,170,.08)'; ctx.lineWidth = 1;
+      for (var x = 0; x < W; x += 28) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+      for (var y = 0; y < H; y += 28) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+      // 装配台
+      ctx.fillStyle = 'rgba(255,255,255,.5)';
+      A.roundRectPath(ctx, 20, 80, W - 40, 260, 18); ctx.fill();
+      ctx.strokeStyle = 'rgba(90,120,170,.18)'; ctx.lineWidth = 2;
+      A.roundRectPath(ctx, 20, 80, W - 40, 260, 18); ctx.stroke();
+
+      // 轴位（虚线）
+      for (var i = 0; i < anchors.length; i++) {
+        var an = anchors[i];
+        if (an.gear === -1 && !an.src) {
+          ctx.strokeStyle = 'rgba(90,120,170,.4)'; ctx.lineWidth = 2; ctx.setLineDash([5, 5]);
+          ctx.beginPath(); ctx.arc(an.x, an.y, an.r, 0, 6.28); ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillStyle = 'rgba(90,120,170,.5)';
+          ctx.beginPath(); ctx.arc(an.x, an.y, 5, 0, 6.28); ctx.fill();
+        }
+      }
+      // 已装齿轮（轴位上的）
+      for (var k = 0; k < anchors.length; k++) {
+        var a2 = anchors[k];
+        if (a2.src || a2.gear !== -1) {
+          var gcol = a2.src ? '#FF6B5E' : GEAR_COLORS[a2.gear % GEAR_COLORS.length];
+          drawGearShape(a2.x, a2.y, a2.r, Math.max(8, Math.round(a2.r / 5)), a2.angle, gcol, a2.src);
+        }
+      }
+      // 散落/拖动齿轮
+      for (var gi = 0; gi < gears.length; gi++) {
+        var gr = gears[gi];
+        if (gr.placed && drag !== gr) continue;
+        drawGearShape(gr.x, gr.y, gr.r, Math.max(8, Math.round(gr.r / 5)), gr.angle, gr.color, false);
+      }
+      // 提示
+      ctx.fillStyle = '#2E4A7D'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'left';
+      ctx.fillText('拖动齿轮到虚线轴上 · 尺寸吻合会咬合', 22, 60);
+      particles.draw(ctx); floaters.draw(ctx);
+    }
+
+    function loop(ts) {
+      var dt = Math.min((ts - lastTs) / 1000 || 0, 0.033);
+      lastTs = ts; time += dt;
+      if (running) {
+        for (var i = 0; i < anchors.length; i++) anchors[i].angle += anchors[i].speed * dt * 0.9;
+        for (var g = 0; g < gears.length; g++) {
+          if (gears[g].placed) continue;
+          gears[g].angle += dt * 0.12; // 散落齿轮轻轻转
+        }
+      }
+      particles.update(dt); floaters.update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+    function pointer(e) {
+      var rect = cv.getBoundingClientRect();
+      return { x: (e.clientX - rect.left) / rect.width * W, y: (e.clientY - rect.top) / rect.height * H };
+    }
+    box.addEventListener('pointerdown', function (e) {
+      e.preventDefault(); if (!running || over) return;
+      var p = pointer(e);
+      for (var i = gears.length - 1; i >= 0; i--) {
+        var gr = gears[i];
+        if (gr.placed) continue;
+        if (Math.hypot(p.x - gr.x, p.y - gr.y) < gr.r + 8) {
+          drag = gr; drag.dx = p.x - gr.x; drag.dy = p.y - gr.y;
+          A.SFX.click(); return;
+        }
+      }
+    });
+    box.addEventListener('pointermove', function (e) {
+      if (!drag) return;
+      var p = pointer(e);
+      drag.x = p.x - drag.dx; drag.y = p.y - drag.dy;
+    });
+    function release() { if (drag) { var d = drag; drag = null; tryPlace(d); } }
+    window.addEventListener('pointerup', release);
+    window.addEventListener('pointercancel', release);
+    $('startBtn').addEventListener('click', start);
+    $('againBtn').addEventListener('click', function () { resetAll(); start(); });
+    $('resetBtn').addEventListener('click', function () { if (!over) loadLevel(levelIdx); });
+    $('muteBtn').addEventListener('click', function () {
+      var m = !A.isMuted(); A.setMuted(m); $('muteBtn').textContent = m ? '🔇 音效关' : '🔊 音效开';
+    });
+
+    resetAll();
+    requestAnimationFrame(function (t) { lastTs = t; loop(t); });
+  })();
+  </script>
+</body>
+</html>

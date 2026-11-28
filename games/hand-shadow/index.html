@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>手影剧场 - 洪哥做的好耍小游戏</title>
+  <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body class="game-page">
+  <div data-ad-slot="banner-top" class="ad-slot-wrap"></div>
+  <div class="game-topbar">
+    <a class="back-btn" href="../../index.html">← 返回游戏大厅</a>
+    <div class="game-title">✋ 手影剧场</div>
+  </div>
+
+  <div class="arcade-wrap">
+    <div class="arcade-hud">
+      <div class="arcade-stat"><span class="lbl">剧情</span><span class="val" id="scene">1/4</span></div>
+      <div class="arcade-stat combo"><span class="lbl">手势</span><span class="val" id="gesture">0/2</span></div>
+      <div class="arcade-stat hi"><span class="lbl">相似</span><span class="val" id="sim">0%</span></div>
+    </div>
+
+    <div class="arcade-canvas-box" id="box">
+      <canvas id="cv"></canvas>
+      <div class="arcade-overlay show" id="startOv">
+        <div class="arcade-panel">
+          <div class="p-emoji">✋</div>
+          <h2>手影剧场</h2>
+          <p class="p-sub">一盏灯，一面墙，用手指演一场手影戏。每一幕给出目标剪影（兔子、小鸟…），照着虚线把手势摆出来——按住屏幕的不同位置，你的影子会出现在墙上。摆得越像，相似度越高。演完整场故事吧！</p>
+          <button class="arcade-btn primary big" id="startBtn">开演</button>
+        </div>
+      </div>
+      <div class="arcade-overlay" id="endOv">
+        <div class="arcade-panel">
+          <div class="p-emoji" id="endEmoji">🎭</div>
+          <h2>演出成功！</h2>
+          <div class="p-sub" id="endDesc">你的手影串成了一个完整的小故事。</div>
+          <button class="arcade-btn primary big" id="againBtn">再演一场</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="arcade-controls">
+      <button class="arcade-btn" id="clearBtn">✋ 放开重摆</button>
+      <button class="arcade-btn" id="muteBtn">🔊 音效开</button>
+    </div>
+    <p class="arcade-tip">根据虚线提示，在墙面上按住一根或多根手指摆出手影。你的影子会实时出现在墙上，摆得越像相似度越高。按住别动几帧即可定格。</p>
+  </div>
+
+  <div data-ad-slot="banner-bottom" class="ad-slot-wrap"></div>
+
+  <script src="../../js/ads.js"></script>
+  <script src="../../js/arcade-kit.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var A = window.Arcade;
+    var W = 480, H = 560;
+    var cv = document.getElementById('cv');
+    var ctx = A.fitCanvas(cv, W, H);
+    var box = document.getElementById('box');
+    var $ = function (id) { return document.getElementById(id); };
+
+    // 每一幕：目标点集（归一化坐标，手指按住这些位置形成剪影）
+    var SCENES = [
+      { name: '小兔', emoji: '🐰', desc: '一只竖着耳朵的小兔', pts: [[0.40, 0.30], [0.46, 0.12], [0.54, 0.12], [0.60, 0.30], [0.50, 0.42]] },
+      { name: '小鸟', emoji: '🐦', desc: '展翅的小鸟', pts: [[0.50, 0.34], [0.28, 0.22], [0.34, 0.42], [0.72, 0.22], [0.66, 0.42]] },
+      { name: '小鹿', emoji: '🦌', desc: '长着犄角的小鹿', pts: [[0.50, 0.40], [0.40, 0.14], [0.44, 0.26], [0.60, 0.14], [0.56, 0.26], [0.50, 0.52]] },
+      { name: '小鱼', emoji: '🐟', desc: '游动的小鱼', pts: [[0.44, 0.34], [0.58, 0.34], [0.68, 0.22], [0.68, 0.46], [0.36, 0.34]] }
+    ];
+
+    var sceneIdx, targetPts, fingers, bestSim, curSim, prevSim, holdTime, running, over,
+        particles, floaters, lastTs, time, scn, flicker;
+
+    function toXY(p) { return { x: p[0] * W, y: 60 + p[1] * 380 }; }
+
+    function loadScene(i) {
+      sceneIdx = i; scn = SCENES[i];
+      targetPts = scn.pts.map(toXY);
+      fingers = {}; bestSim = 0; curSim = 0; prevSim = 0; holdTime = 0; flicker = 0;
+      particles = new A.Particles();
+      if (i > 0) floaters = new A.Floaters(); else floaters = new A.Floaters();
+      $('scene').textContent = (i + 1) + '/' + SCENES.length;
+      updateHud();
+    }
+    function resetAll() {
+      over = false; running = false; time = 0;
+      loadScene(0);
+      $('endOv').classList.remove('show');
+      $('startOv').classList.add('show');
+    }
+    function start() {
+      $('startOv').classList.remove('show');
+      running = true; lastTs = performance.now();
+    }
+    function updateHud() {
+      $('gesture').textContent = Object.keys(fingers).length + '/' + targetPts.length;
+      $('sim').textContent = Math.floor(bestSim) + '%';
+    }
+
+    function calcSimilarity() {
+      var fp = Object.keys(fingers).map(function (k) { return fingers[k]; });
+      if (fp.length === 0) return 0;
+      // 对每个目标点找最近手指；对每个手指找最近目标，双向匹配取平均覆盖率
+      var cover = 0;
+      for (var i = 0; i < targetPts.length; i++) {
+        var t = targetPts[i], best = 1e9;
+        for (var j = 0; j < fp.length; j++) best = Math.min(best, Math.hypot(t.x - fp[j].x, t.y - fp[j].y));
+        cover += Math.max(0, 1 - best / 70);
+      }
+      var excess = Math.max(0, fp.length - targetPts.length) * 0.06;
+      return A.clamp((cover / targetPts.length) - excess, 0, 1);
+    }
+
+    function pointer(e) {
+      var rect = cv.getBoundingClientRect();
+      return { x: (e.clientX - rect.left) / rect.width * W, y: (e.clientY - rect.top) / rect.height * H };
+    }
+    box.addEventListener('pointerdown', function (e) {
+      e.preventDefault(); if (!running || over) return;
+      var p = pointer(e);
+      fingers[e.pointerId] = p;
+      A.SFX.click();
+      updateHud();
+    });
+    box.addEventListener('pointermove', function (e) {
+      if (!fingers[e.pointerId]) return;
+      fingers[e.pointerId] = pointer(e);
+    });
+    function release(e) { delete fingers[e.pointerId]; updateHud(); }
+    box.addEventListener('pointerup', release);
+    box.addEventListener('pointercancel', release);
+    box.addEventListener('pointerleave', release);
+
+    function drawSilhouette() {
+      // 墙上的影子：把每个手指画成柔和的模糊圆，连成手影
+      ctx.save();
+      ctx.globalCompositeOperation = 'multiply';
+      ctx.shadowColor = 'rgba(60,50,90,.5)'; ctx.shadowBlur = 26;
+      var fp = Object.keys(fingers).map(function (k) { return fingers[k]; });
+      for (var i = 0; i < fp.length; i++) {
+        ctx.fillStyle = 'rgba(70,58,105,.5)';
+        ctx.beginPath(); ctx.ellipse(fp[i].x, fp[i].y, 40, 46, 0, 0, 6.28); ctx.fill();
+        // 连接相邻手指形成掌形
+        if (i + 1 < fp.length) {
+          ctx.strokeStyle = 'rgba(70,58,105,.45)'; ctx.lineWidth = 30; ctx.lineCap = 'round';
+          ctx.beginPath(); ctx.moveTo(fp[i].x, fp[i].y); ctx.lineTo(fp[i + 1].x, fp[i + 1].y); ctx.stroke();
+        }
+      }
+      ctx.restore();
+      ctx.lineCap = 'butt';
+    }
+    function drawTarget() {
+      // 目标虚线剪影
+      ctx.save();
+      ctx.setLineDash([6, 6]);
+      ctx.strokeStyle = 'rgba(255,210,107,.9)'; ctx.lineWidth = 3;
+      ctx.beginPath();
+      for (var i = 0; i < targetPts.length; i++) {
+        var t = targetPts[i];
+        if (i === 0) ctx.moveTo(t.x, t.y); else ctx.lineTo(t.x, t.y);
+      }
+      ctx.closePath(); ctx.stroke();
+      ctx.setLineDash([]);
+      for (var k = 0; k < targetPts.length; k++) {
+        var tp = targetPts[k];
+        ctx.fillStyle = 'rgba(255,210,107,.85)';
+        ctx.beginPath(); ctx.arc(tp.x, tp.y, 6, 0, 6.28); ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    function draw() {
+      // 墙面暖色
+      var g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, '#F5E9D2'); g.addColorStop(1, '#EAD7B8');
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      // 灯光晕
+      var lg = ctx.createRadialGradient(W / 2, 200, 30, W / 2, 200, 300);
+      lg.addColorStop(0, 'rgba(255,247,220,.9)'); lg.addColorStop(1, 'rgba(255,247,220,0)');
+      ctx.fillStyle = lg; ctx.fillRect(0, 0, W, H);
+      // 顶部信息
+      ctx.fillStyle = '#6B5A3E'; ctx.font = 'bold 15px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('第 ' + (sceneIdx + 1) + ' 幕 · ' + scn.desc, W / 2, 32);
+      // 舞台区
+      ctx.fillStyle = 'rgba(255,255,255,.18)';
+      A.roundRectPath(ctx, 20, 52, W - 40, 400, 16); ctx.fill();
+      drawTarget();
+      drawSilhouette();
+      // 灯光闪烁
+      flicker += 0.05;
+      ctx.fillStyle = 'rgba(255,255,255,' + (0.02 + Math.sin(flicker) * 0.015) + ')';
+      ctx.fillRect(0, 0, W, H);
+      // 相似度环
+      ctx.fillStyle = 'rgba(107,90,62,.85)'; ctx.font = 'bold 13px sans-serif';
+      ctx.fillText('相似度 ' + Math.floor(curSim * 100) + '%  (目标 ' + Math.floor(bestSim * 100) + '%)', W / 2, 480);
+      ctx.fillStyle = 'rgba(107,90,62,.2)'; A.roundRectPath(ctx, 60, 496, W - 120, 12, 6); ctx.fill();
+      ctx.fillStyle = '#E0A93B'; A.roundRectPath(ctx, 60, 496, (W - 120) * curSim, 12, 6); ctx.fill();
+      particles.draw(ctx); floaters.draw(ctx);
+    }
+
+    function winScene() {
+      particles.burst(W / 2, 240, { count: 22, colors: ['#FFD86B', '#FFFFFF', '#E0A93B'], speedMax: 220, lifeMax: 1, gravity: 60 });
+      floaters.add(W / 2, 200, scn.emoji + ' 像！', '#E0A93B', 26);
+      A.SFX.win(); A.vibrate(30);
+      if (sceneIdx < SCENES.length - 1) {
+        setTimeout(function () { if (!over) loadScene(sceneIdx + 1); }, 1200);
+      } else {
+        over = true; running = false;
+        $('endEmoji').textContent = '🎭';
+        $('endDesc').textContent = '兔子、小鸟、小鹿、小鱼——你的手影串成了一场完整的小剧场！';
+        $('endOv').classList.add('show');
+      }
+    }
+
+    function loop(ts) {
+      var dt = Math.min((ts - lastTs) / 1000 || 0, 0.033);
+      lastTs = ts; time += dt;
+      if (running && !over) {
+        curSim = calcSimilarity();
+        if (curSim > bestSim) bestSim = curSim;
+        // 相似度达阈值并保持
+        if (curSim >= 0.78) {
+          holdTime += dt;
+          if (holdTime > 0.6) { holdTime = 0; winScene(); }
+        } else holdTime = 0;
+      }
+      particles.update(dt); floaters.update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    $('clearBtn').addEventListener('click', function () { fingers = {}; holdTime = 0; updateHud(); });
+    $('startBtn').addEventListener('click', start);
+    $('againBtn').addEventListener('click', function () { resetAll(); start(); });
+    $('muteBtn').addEventListener('click', function () {
+      var m = !A.isMuted(); A.setMuted(m); $('muteBtn').textContent = m ? '🔇 音效关' : '🔊 音效开';
+    });
+
+    resetAll();
+    requestAnimationFrame(function (t) { lastTs = t; loop(t); });
+  })();
+  </script>
+</body>
+</html>

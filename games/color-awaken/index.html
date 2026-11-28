@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>色彩唤醒 - 洪哥做的好耍小游戏</title>
+  <link rel="stylesheet" href="../../css/style.css">
+</head>
+<body class="game-page">
+  <div data-ad-slot="banner-top" class="ad-slot-wrap"></div>
+  <div class="game-topbar">
+    <a class="back-btn" href="../../index.html">← 返回游戏大厅</a>
+    <div class="game-title">🎨 色彩唤醒</div>
+  </div>
+
+  <div class="arcade-wrap">
+    <div class="arcade-hud">
+      <div class="arcade-stat"><span class="lbl">得分</span><span class="val" id="score">0</span></div>
+      <div class="arcade-stat combo"><span class="lbl">连击</span><span class="val" id="combo">0</span></div>
+      <div class="arcade-stat hi"><span class="lbl">唤醒</span><span class="val" id="progress">0/12</span></div>
+    </div>
+
+    <div class="arcade-canvas-box" id="box">
+      <canvas id="cv"></canvas>
+      <div class="arcade-overlay show" id="startOv">
+        <div class="arcade-panel">
+          <div class="p-emoji">🎨</div>
+          <h2>色彩唤醒</h2>
+          <p class="p-sub">这幅画失去了颜色。先选下方的颜色，再点亮画里的图形——涂对它原本的颜色，它就会"活"过来：花朵绽放、蝴蝶飞舞、星星眨眼。把整幅画唤醒吧！</p>
+          <button class="arcade-btn primary big" id="startBtn">开始唤醒</button>
+        </div>
+      </div>
+      <div class="arcade-overlay" id="endOv">
+        <div class="arcade-panel">
+          <div class="p-emoji" id="endEmoji">🌈</div>
+          <h2>整幅画醒啦！</h2>
+          <div class="p-score">得分 <b id="finalScore">0</b></div>
+          <div id="newBest" class="p-new" style="display:none">🎉 新纪录！</div>
+          <button class="arcade-btn primary big" id="againBtn">再画一幅</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="arcade-controls">
+      <button class="arcade-btn" id="shuffleBtn">🖌️ 换一幅</button>
+      <button class="arcade-btn" id="muteBtn">🔊 音效开</button>
+    </div>
+    <p class="arcade-tip">先点下方调色盘选颜色，再点画面里的图形上色。涂对原本的颜色，图形会绽放"活"起来，还有额外加分！</p>
+  </div>
+
+  <div data-ad-slot="banner-bottom" class="ad-slot-wrap"></div>
+
+  <script src="../../js/ads.js"></script>
+  <script src="../../js/arcade-kit.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var A = window.Arcade;
+    var W = 480, H = 560;
+    var cv = document.getElementById('cv');
+    var ctx = A.fitCanvas(cv, W, H);
+    var box = document.getElementById('box');
+    var $ = function (id) { return document.getElementById(id); };
+
+    // 调色盘
+    var PALETTE = [
+      { name: '月光黄', c: '#FFD86B' },
+      { name: '桃花粉', c: '#FF8FB1' },
+      { name: '天空蓝', c: '#6EC1FF' },
+      { name: '薄荷绿', c: '#5FD8A4' },
+      { name: '丁香紫', c: '#C79BFF' },
+      { name: '暖阳橙', c: '#FF9E5E' }
+    ];
+    var PAL_Y = H - 58, PAL_R = 22, PAL_GAP = 66, PAL_X0 = W / 2 - PAL_GAP * 2.5;
+
+    var SCENES = [
+      { name: '月夜花园', bg: ['#1B2A55', '#3B3A7A'] },
+      { name: '晨曦花园', bg: ['#2E4A7D', '#6E7FB8'] },
+      { name: '星夜花园', bg: ['#141F45', '#2E2A6A'] }
+    ];
+
+    var items, sel, score, combo, done, running, over, particles, floaters, best, lastTs, time, scene;
+
+    function makeItems() {
+      var arr = [];
+      // 月亮
+      arr.push({ type: 'moon', x: 78, y: 78, r: 34, target: 0, done: false, color: null, bloom: 0, ph: 0 });
+      // 星星 5
+      var starPos = [[170, 62], [250, 100], [330, 58], [408, 96], [290, 46]];
+      for (var i = 0; i < starPos.length; i++) {
+        arr.push({ type: 'star', x: starPos[i][0], y: starPos[i][1], r: 18, target: i % 2 === 0 ? 0 : 4, done: false, color: null, bloom: 0, ph: A.rand(0, 6.28) });
+      }
+      // 花 3
+      var flowerPos = [[96, 330], [240, 300], [386, 338]];
+      var flowerCols = [1, 4, 5];
+      for (var f = 0; f < flowerPos.length; f++) {
+        arr.push({ type: 'flower', x: flowerPos[f][0], y: flowerPos[f][1], r: 30, target: flowerCols[f], done: false, color: null, bloom: 0, ph: A.rand(0, 6.28) });
+      }
+      // 蝴蝶 3
+      var butterflyPos = [[160, 200], [320, 220], [230, 160]];
+      var butterflyCols = [2, 4, 5];
+      for (var b = 0; b < butterflyPos.length; b++) {
+        arr.push({ type: 'butterfly', x: butterflyPos[b][0], y: butterflyPos[b][1], r: 24, target: butterflyCols[b], done: false, color: null, bloom: 0, ph: A.rand(0, 6.28) });
+      }
+      return arr;
+    }
+
+    function reset(newScene) {
+      if (newScene || !scene) scene = SCENES[A.randInt(0, SCENES.length - 1)];
+      items = makeItems();
+      sel = -1; score = 0; combo = 0; done = 0; running = false; over = false; time = 0;
+      particles = new A.Particles(); floaters = new A.Floaters();
+      updateHud();
+      $('endOv').classList.remove('show');
+      $('startOv').classList.add('show');
+    }
+    function start() {
+      $('startOv').classList.remove('show');
+      running = true; lastTs = performance.now();
+    }
+    function updateHud() {
+      $('score').textContent = score;
+      $('combo').textContent = combo;
+      $('progress').textContent = done + '/' + items.length;
+    }
+
+    function paint(it) {
+      if (!running || over || it.done) return;
+      var correct = (sel === it.target);
+      it.done = true; it.color = correct ? PALETTE[sel].c : PALETTE[sel].c; it.bloom = 0;
+      done++;
+      var cx = it.x, cy = it.y;
+      if (correct) {
+        combo++;
+        var pts = 10 + combo * 2;
+        score += pts;
+        A.SFX.merge(combo); A.vibrate(12);
+        particles.burst(cx, cy, { count: 16, colors: [PALETTE[sel].c, '#FFFFFF', '#FFE066'], speedMax: 190, lifeMax: 0.9, gravity: 60 });
+        floaters.add(cx, cy - 26, '+' + pts + ' 唤醒', PALETTE[sel].c, 18);
+      } else {
+        combo = 0;
+        score += 3;
+        A.SFX.tap();
+        particles.burst(cx, cy, { count: 8, colors: [PALETTE[sel].c, '#FFFFFF'], speedMax: 110, lifeMax: 0.6, gravity: 80 });
+        floaters.add(cx, cy - 22, '+3', '#FFFFFF', 15);
+      }
+      updateHud();
+      if (done >= items.length) gameOver();
+    }
+
+    function gameOver() {
+      over = true; running = false;
+      var isNew = score > best;
+      if (isNew) { best = score; A.Best.set('colorawaken', best); }
+      $('finalScore').textContent = score;
+      $('newBest').style.display = isNew ? 'inline-block' : 'none';
+      $('endEmoji').textContent = '🌈';
+      $('endOv').classList.add('show');
+      for (var i = 0; i < 5; i++) {
+        particles.burst(A.rand(60, W - 60), A.rand(60, 300), {
+          count: 14, colors: PALETTE.map(function (p) { return p.c; }), speedMax: 300, lifeMax: 1.3, gravity: 90
+        });
+      }
+      A.SFX.win(); A.vibrate(40);
+    }
+
+    function drawStar(x, y, r, color, filled) {
+      ctx.beginPath();
+      for (var i = 0; i < 10; i++) {
+        var ang = -Math.PI / 2 + i * Math.PI / 5;
+        var rr = (i % 2 === 0) ? r : r * 0.44;
+        var px = x + Math.cos(ang) * rr, py = y + Math.sin(ang) * rr;
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      if (filled) {
+        ctx.shadowColor = color; ctx.shadowBlur = 18; ctx.fillStyle = color; ctx.fill(); ctx.shadowBlur = 0;
+      } else {
+        ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 2; ctx.stroke();
+      }
+    }
+    function drawMoon(x, y, r, color, filled, bloom) {
+      ctx.save();
+      ctx.translate(x, y);
+      var s = filled ? (0.85 + bloom * 0.15) : 1;
+      ctx.scale(s, s);
+      if (filled) { ctx.shadowColor = color; ctx.shadowBlur = 26; }
+      ctx.fillStyle = filled ? color : 'rgba(255,255,255,.28)';
+      ctx.beginPath(); ctx.arc(0, 0, r, 0, 6.28); ctx.fill();
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.beginPath(); ctx.arc(r * 0.42, -r * 0.2, r * 0.9, 0, 6.28); ctx.fill();
+      ctx.restore();
+      ctx.shadowBlur = 0;
+    }
+    function drawFlower(it) {
+      var opened = it.done ? (0.3 + it.bloom * 0.7) : 0.3;
+      var col = it.done ? it.color : 'rgba(255,255,255,.3)';
+      var x = it.x, y = it.y;
+      ctx.strokeStyle = 'rgba(120,220,160,.6)'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(x, y + 16); ctx.lineTo(x, y + 60); ctx.stroke();
+      ctx.fillStyle = 'rgba(120,220,160,.5)';
+      ctx.beginPath(); ctx.ellipse(x - 12, y + 44, 13, 7, -0.5, 0, 6.28); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(x + 12, y + 52, 13, 7, 0.5, 0, 6.28); ctx.fill();
+      ctx.save(); ctx.translate(x, y);
+      if (it.done) { ctx.shadowColor = col; ctx.shadowBlur = 16; }
+      for (var p = 0; p < 5; p++) {
+        var a = p / 5 * 6.28;
+        ctx.fillStyle = col;
+        ctx.beginPath();
+        ctx.ellipse(Math.cos(a) * 16 * opened, Math.sin(a) * 16 * opened, 12 * opened, 9 * opened, a, 0, 6.28);
+        ctx.fill();
+      }
+      ctx.fillStyle = it.done ? '#FFD86B' : 'rgba(255,216,107,.4)';
+      ctx.beginPath(); ctx.arc(0, 0, 9 * opened, 0, 6.28); ctx.fill();
+      ctx.restore(); ctx.shadowBlur = 0;
+    }
+    function drawButterfly(it) {
+      var x = it.x, y = it.y;
+      var flap = it.done ? (0.55 + Math.abs(Math.sin(time * 6 + it.ph)) * 0.45) : 0.8;
+      var col = it.done ? it.color : 'rgba(255,255,255,.32)';
+      ctx.save(); ctx.translate(x, y);
+      if (it.done) { ctx.shadowColor = col; ctx.shadowBlur = 14; }
+      ctx.fillStyle = col;
+      // 上翅
+      ctx.beginPath(); ctx.ellipse(-11, -8, 12 * flap, 16, -0.5, 0, 6.28); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(11, -8, 12 * flap, 16, 0.5, 0, 6.28); ctx.fill();
+      // 下翅
+      ctx.beginPath(); ctx.ellipse(-9, 10, 9 * flap, 11, 0.4, 0, 6.28); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(9, 10, 9 * flap, 11, -0.4, 0, 6.28); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = it.done ? '#2E4A7D' : 'rgba(255,255,255,.5)';
+      ctx.beginPath(); ctx.ellipse(0, 2, 2.5, 14, 0, 0, 6.28); ctx.fill();
+      ctx.restore();
+    }
+
+    function draw() {
+      // 场景背景
+      var g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, scene.bg[0]); g.addColorStop(1, scene.bg[1]);
+      ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+      // 草地
+      ctx.fillStyle = 'rgba(40,90,80,.5)';
+      ctx.beginPath(); ctx.ellipse(W / 2, H - 40, W * 0.7, 70, 0, 0, 6.28); ctx.fill();
+
+      for (var i = 0; i < items.length; i++) {
+        var it = items[i];
+        if (it.done && it.bloom < 1) it.bloom = Math.min(1, it.bloom + 0.03);
+        if (it.type === 'moon') drawMoon(it.x, it.y, it.r, it.color, it.done, it.bloom);
+        else if (it.type === 'star') {
+          var twinkle = it.done ? (0.85 + Math.sin(time * 3 + it.ph) * 0.15) : 1;
+          ctx.save(); ctx.translate(it.x, it.y); ctx.scale(twinkle, twinkle);
+          drawStar(0, 0, it.r, it.color || '#FFFFFF', it.done); ctx.restore();
+        }
+        else if (it.type === 'flower') drawFlower(it);
+        else if (it.type === 'butterfly') {
+          if (it.done) {
+            var fy = it.y + Math.sin(time * 2 + it.ph) * 10;
+            var fx = it.x + Math.sin(time * 1.3 + it.ph) * 22;
+            drawButterfly({ x: fx, y: fy, done: true, color: it.color, ph: it.ph });
+          } else drawButterfly(it);
+        }
+      }
+      // 调色盘底板
+      ctx.fillStyle = 'rgba(10,16,40,.55)';
+      A.roundRectPath(ctx, 10, PAL_Y - 20, W - 20, 66, 16); ctx.fill();
+      for (var p = 0; p < PALETTE.length; p++) {
+        var px = PAL_X0 + p * PAL_GAP, py = PAL_Y + 10;
+        var isSel = (sel === p);
+        if (isSel) { ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(px, py, PAL_R + 5, 0, 6.28); ctx.stroke(); }
+        ctx.fillStyle = PALETTE[p].c;
+        ctx.beginPath(); ctx.arc(px, py, PAL_R, 0, 6.28); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(PALETTE[p].name.slice(0, 2), px, py);
+      }
+      particles.draw(ctx); floaters.draw(ctx);
+    }
+
+    function loop(ts) {
+      var dt = Math.min((ts - lastTs) / 1000 || 0, 0.033);
+      lastTs = ts; time += dt;
+      particles.update(dt); floaters.update(dt);
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    function pointer(e) {
+      var rect = cv.getBoundingClientRect();
+      return { x: (e.clientX - rect.left) / rect.width * W, y: (e.clientY - rect.top) / rect.height * H };
+    }
+    box.addEventListener('pointerdown', function (e) {
+      e.preventDefault(); if (!running || over) return;
+      var p = pointer(e);
+      // 调色盘
+      for (var k = 0; k < PALETTE.length; k++) {
+        var px = PAL_X0 + k * PAL_GAP, py = PAL_Y + 10;
+        if (Math.hypot(p.x - px, p.y - py) < PAL_R + 8) {
+          sel = k; A.SFX.click(); return;
+        }
+      }
+      if (sel < 0) { floaters.add(W / 2, PAL_Y - 30, '先选一个颜色', '#FFFFFF', 16); return; }
+      // 图形（倒序，蝴蝶在花朵上层）
+      for (var i = items.length - 1; i >= 0; i--) {
+        var it = items[i];
+        if (it.done) continue;
+        var ir = it.r + 12;
+        if (Math.hypot(p.x - it.x, p.y - it.y) < ir) { paint(it); return; }
+      }
+    });
+    $('startBtn').addEventListener('click', start);
+    $('againBtn').addEventListener('click', function () { reset(true); start(); });
+    $('shuffleBtn').addEventListener('click', function () { reset(true); });
+    $('muteBtn').addEventListener('click', function () {
+      var m = !A.isMuted(); A.setMuted(m); $('muteBtn').textContent = m ? '🔇 音效关' : '🔊 音效开';
+    });
+
+    best = A.Best.get('colorawaken');
+    reset();
+    requestAnimationFrame(function (t) { lastTs = t; loop(t); });
+  })();
+  </script>
+</body>
+</html>
